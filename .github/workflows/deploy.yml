@@ -9,52 +9,11 @@ env:
   NODE_VERSION: '20'
 
 jobs:
-  # ─── 1. Build ─────────────────────────────────────────────────────────────
-  build:
-    name: Build Frontend
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Install frontend dependencies
-        run: cd frontend && npm ci
-
-      - name: Build frontend
-        env:
-          VITE_API_URL: ${{ secrets.VITE_API_URL }}
-          VITE_WS_URL: ${{ secrets.VITE_WS_URL }}
-        run: cd frontend && npm run build
-
-      - name: Upload frontend build
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-dist
-          path: frontend/dist
-          retention-days: 1
-
-  # ─── 2. Deploy ────────────────────────────────────────────────────────────
   deploy:
     name: Deploy to EC2
     runs-on: ubuntu-latest
-    needs: build
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Download frontend build
-        uses: actions/download-artifact@v4
-        with:
-          name: frontend-dist
-          path: frontend/dist
-
       - name: Setup SSH agent
         uses: webfactory/ssh-agent@v0.9.0
         with:
@@ -63,33 +22,29 @@ jobs:
       - name: Add EC2 to known hosts
         run: ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Sync backend to EC2
-        run: |
-          rsync -avz --delete \
-            --exclude 'node_modules' \
-            --exclude '.env' \
-            --exclude '.git' \
-            backend/ \
-            ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/var/www/imposter-game/backend/
-
-      - name: Sync frontend dist to EC2
-        run: |
-          rsync -avz --delete \
-            frontend/dist/ \
-            ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/var/www/imposter-game/frontend/dist/
-
-      - name: Install dependencies & restart
+      - name: Deploy
         run: |
           ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'ENDSSH'
             set -e
+
+            echo "=== Pulling latest code ==="
+            cd /var/www/imposter-game
+            git pull origin main
 
             echo "=== Installing backend dependencies ==="
             cd /var/www/imposter-game/backend
             npm ci --omit=dev
 
+            echo "=== Building frontend ==="
+            cd /var/www/imposter-game/frontend
+            npm ci
+            VITE_API_URL=http://3.27.150.233/api \
+            VITE_WS_URL=http://3.27.150.233 \
+            npm run build
+
             echo "=== Restarting backend ==="
             pm2 restart imposter-backend --update-env || \
-              pm2 start src/index.js \
+              pm2 start /var/www/imposter-game/backend/src/index.js \
                 --name imposter-backend \
                 --max-memory-restart 300M \
                 --restart-delay 3000 \
@@ -100,7 +55,7 @@ jobs:
             echo "=== Reloading Nginx ==="
             sudo systemctl reload nginx
 
-            echo "=== Done ==="
+            echo "=== Deploy complete ==="
             pm2 status
           ENDSSH
 
