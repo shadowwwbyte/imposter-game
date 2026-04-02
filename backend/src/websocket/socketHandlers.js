@@ -61,7 +61,6 @@ const setupSocketHandlers = (io) => {
         const { rows: lobbyRows } = await query('SELECT id FROM game_lobbies WHERE code = $1', [code]);
         if (!lobbyRows[0]) return;
 
-        // Simple reaction add (toggle)
         const { rows: msgRows } = await query('SELECT reactions FROM lobby_messages WHERE id = $1', [messageId]);
         if (!msgRows[0]) return;
 
@@ -100,6 +99,64 @@ const setupSocketHandlers = (io) => {
       socket.to(`lobby:${code}`).emit('lobby:audioStreamEnd', { userId: user.id });
     });
 
+    // --- Turn management ---
+    // Host broadcasts the first turn after game starts, then advances each turn
+    socket.on('game:nextTurn', async ({ code, currentTurnUserId }) => {
+      try {
+        const { rows: lobbyRows } = await query(
+          `SELECT gl.turn_time, gl.current_round, gl.host_id FROM game_lobbies gl WHERE gl.code = $1`,
+          [code]
+        );
+        if (!lobbyRows[0] || lobbyRows[0].host_id !== user.id) return;
+
+        const { rows: playerRows } = await query(
+          `SELECT lm.user_id AS id, u.username
+           FROM lobby_members lm
+           JOIN users u ON u.id = lm.user_id
+           WHERE lm.lobby_id = (SELECT id FROM game_lobbies WHERE code = $1)
+             AND lm.is_eliminated = FALSE
+           ORDER BY lm.joined_at ASC`,
+          [code]
+        );
+
+        if (!playerRows.length) return;
+
+        // Find the next player after currentTurnUserId
+        const currentIdx = playerRows.findIndex(p => p.id === currentTurnUserId);
+        const nextIdx = (currentIdx + 1) % playerRows.length;
+        const nextPlayer = playerRows[nextIdx];
+        const isNewRound = nextIdx === 0;
+
+        if (isNewRound) {
+          await query(
+            'UPDATE game_lobbies SET current_round = current_round + 1 WHERE code = $1',
+            [code]
+          );
+        }
+
+        const newRound = lobbyRows[0].current_round + (isNewRound ? 1 : 0);
+
+        io.to(`lobby:${code}`).emit('game:turnChanged', {
+          currentTurnUserId: nextPlayer.id,
+          currentTurnUsername: nextPlayer.username,
+          turnTime: lobbyRows[0].turn_time,
+          isNewRound,
+          roundNumber: newRound,
+        });
+
+      } catch (err) {
+        console.error('nextTurn error:', err);
+      }
+    });
+
+    // Player signals their timer ran out — host client will call game:nextTurn
+    socket.on('game:turnDone', ({ code }) => {
+      io.to(`lobby:${code}`).emit('game:turnDone', {
+        userId: user.id,
+        username: user.username,
+      });
+    });
+
     // --- User typing indicator ---
     socket.on('chat:typing', ({ receiverId, isTyping }) => {
       io.to(`user:${receiverId}`).emit('chat:typing', { senderId: user.id, isTyping });
@@ -114,7 +171,6 @@ const setupSocketHandlers = (io) => {
       console.log(`[Socket] Disconnected: ${user.username} - ${reason}`);
       onlineUsers.delete(user.id);
 
-      // Check if user is in an active game
       const { rows: activeGame } = await query(
         `SELECT gl.code FROM lobby_members lm
          JOIN game_lobbies gl ON gl.id = lm.lobby_id
@@ -123,7 +179,6 @@ const setupSocketHandlers = (io) => {
       );
 
       if (activeGame[0]) {
-        // Notify lobby of disconnect
         io.to(`lobby:${activeGame[0].code}`).emit('game:playerDisconnected', {
           userId: user.id,
           username: user.username,
