@@ -1,8 +1,19 @@
 const { query } = require('../models/db');
+const http = require('http');
 
 const onlineUsers = new Map();
 
+// Internal helper: call our own REST API to trigger voting check after a round
+const notifyRoundComplete = (code, hostToken) => {
+  // We call the round-complete endpoint internally via the express app
+  // This is set on the io object when we set up handlers
+  return { code, hostToken };
+};
+
 const setupSocketHandlers = (io) => {
+  // Store reference to express app for internal calls
+  const app = io.httpServer?._events?.request?._router ? null : null;
+
   io.on('connection', async (socket) => {
     const user = socket.user;
     console.log(`[Socket] Connected: ${user.username} (${socket.id})`);
@@ -21,14 +32,10 @@ const setupSocketHandlers = (io) => {
       }
     }
 
-    socket.on('lobby:join', async ({ code }) => {
-      socket.join(`lobby:${code}`);
-    });
+    socket.on('lobby:join', ({ code }) => socket.join(`lobby:${code}`));
+    socket.on('lobby:leave', ({ code }) => socket.leave(`lobby:${code}`));
 
-    socket.on('lobby:leave', ({ code }) => {
-      socket.leave(`lobby:${code}`);
-    });
-
+    // ── Lobby chat ────────────────────────────────────────────────────────
     socket.on('lobby:message', async ({ code, content, messageType = 'text', audioUrl, replyToId }) => {
       try {
         const { rows: lobbyRows } = await query('SELECT id FROM game_lobbies WHERE code = $1', [code]);
@@ -39,13 +46,9 @@ const setupSocketHandlers = (io) => {
           [lobbyRows[0].id, user.id, content, messageType, audioUrl, replyToId || null]
         );
         io.to(`lobby:${code}`).emit('lobby:message', {
-          ...rows[0],
-          sender_username: user.username,
-          sender_avatar: user.avatar_color,
+          ...rows[0], sender_username: user.username, sender_avatar: user.avatar_color,
         });
-      } catch (err) {
-        console.error('Lobby message error:', err);
-      }
+      } catch (err) { console.error('lobby:message error:', err); }
     });
 
     socket.on('lobby:reaction', async ({ code, messageId, emoji }) => {
@@ -59,35 +62,40 @@ const setupSocketHandlers = (io) => {
         const idx = reactions[emoji].indexOf(user.id);
         if (idx > -1) {
           reactions[emoji].splice(idx, 1);
-          if (reactions[emoji].length === 0) delete reactions[emoji];
+          if (!reactions[emoji].length) delete reactions[emoji];
         } else {
           reactions[emoji].push(user.id);
         }
         await query('UPDATE lobby_messages SET reactions = $1 WHERE id = $2', [JSON.stringify(reactions), messageId]);
         io.to(`lobby:${code}`).emit('lobby:reaction', { messageId, reactions });
-      } catch (err) {
-        console.error('Lobby reaction error:', err);
-      }
+      } catch (err) { console.error('lobby:reaction error:', err); }
     });
 
-    socket.on('lobby:audioStream', ({ code, audioChunk }) => {
-      socket.to(`lobby:${code}`).emit('lobby:audioStream', { userId: user.id, username: user.username, audioChunk });
-    });
-    socket.on('lobby:audioStreamStart', ({ code }) => {
-      socket.to(`lobby:${code}`).emit('lobby:audioStreamStart', { userId: user.id, username: user.username });
-    });
-    socket.on('lobby:audioStreamEnd', ({ code }) => {
-      socket.to(`lobby:${code}`).emit('lobby:audioStreamEnd', { userId: user.id });
+    // ── Audio ─────────────────────────────────────────────────────────────
+    socket.on('lobby:audioStream',      ({ code, audioChunk }) => socket.to(`lobby:${code}`).emit('lobby:audioStream', { userId: user.id, username: user.username, audioChunk }));
+    socket.on('lobby:audioStreamStart', ({ code })             => socket.to(`lobby:${code}`).emit('lobby:audioStreamStart', { userId: user.id, username: user.username }));
+    socket.on('lobby:audioStreamEnd',   ({ code })             => socket.to(`lobby:${code}`).emit('lobby:audioStreamEnd', { userId: user.id }));
+
+    // ── Typing ────────────────────────────────────────────────────────────
+    socket.on('chat:typing',  ({ receiverId, isTyping }) => io.to(`user:${receiverId}`).emit('chat:typing', { senderId: user.id, isTyping }));
+    socket.on('lobby:typing', ({ code, isTyping })       => socket.to(`lobby:${code}`).emit('lobby:typing', { userId: user.id, username: user.username, isTyping }));
+
+    // ── Hint (NOT saved to chat) ───────────────────────────────────────────
+    socket.on('game:submitHint', ({ code, hint }) => {
+      if (!hint?.trim()) return;
+      const word = hint.trim().split(/\s+/)[0].substring(0, 30);
+      io.to(`lobby:${code}`).emit('game:hintSubmitted', { userId: user.id, username: user.username, hint: word });
     });
 
-    // ── Turn management ──────────────────────────────────────────────────
+    // ── Turn management ───────────────────────────────────────────────────
     socket.on('game:nextTurn', async ({ code, currentTurnUserId }) => {
       try {
         const { rows: lobbyRows } = await query(
-          'SELECT turn_time, current_round, host_id FROM game_lobbies WHERE code = $1',
+          'SELECT turn_time, current_round, host_id, voting_started FROM game_lobbies WHERE code = $1',
           [code]
         );
         if (!lobbyRows[0] || lobbyRows[0].host_id !== user.id) return;
+        if (lobbyRows[0].voting_started) return; // don't advance turns during voting
 
         const { rows: playerRows } = await query(
           `SELECT lm.user_id AS id, u.username
@@ -98,58 +106,76 @@ const setupSocketHandlers = (io) => {
            ORDER BY lm.joined_at ASC`,
           [code]
         );
-
         if (!playerRows.length) return;
 
         const currentIdx = playerRows.findIndex(p => p.id === currentTurnUserId);
         const nextIdx    = (currentIdx + 1) % playerRows.length;
         const nextPlayer = playerRows[nextIdx];
-        const isNewRound = nextIdx === 0;
+        const isNewRound = nextIdx === 0; // wrapped back to start = round complete
 
         if (isNewRound) {
           await query('UPDATE game_lobbies SET current_round = current_round + 1 WHERE code = $1', [code]);
+
+          // Check voting conditions
+          const { rows: [lobbyFull] } = await query(
+            `SELECT gl.*, COUNT(lm.user_id) FILTER (WHERE lm.is_eliminated = FALSE) AS active_count
+             FROM game_lobbies gl
+             LEFT JOIN lobby_members lm ON lm.lobby_id = gl.id
+             WHERE gl.code = $1
+             GROUP BY gl.id`,
+            [code]
+          );
+
+          if (!lobbyFull.voting_started) {
+            const activeCount      = parseInt(lobbyFull.active_count);
+            const roundsSince      = parseInt(lobbyFull.rounds_since_last_vote || 0) + 1;
+
+            await query(
+              'UPDATE game_lobbies SET rounds_since_last_vote = $1 WHERE code = $2',
+              [roundsSince, code]
+            );
+
+            const { shouldStartVoting } = require('../utils/gameLogic');
+
+            if (shouldStartVoting(activeCount, roundsSince)) {
+              // Auto-start voting
+              await query('UPDATE game_lobbies SET voting_started = TRUE WHERE code = $1', [code]);
+
+              const rule = activeCount >= 5
+                ? 'Vote for who you think is the imposter!'
+                : 'Vote for who you think is the imposter!';
+
+              io.to(`lobby:${code}`).emit('game:votingStarted', {
+                round:   lobbyFull.current_round + 1,
+                message: `🗳️ Round complete — VOTING TIME! ${rule}`,
+                auto:    true,
+              });
+              // Don't emit game:turnChanged — voting takes over
+              return;
+            }
+          }
         }
 
         io.to(`lobby:${code}`).emit('game:turnChanged', {
-          currentTurnUserId:    nextPlayer.id,
-          currentTurnUsername:  nextPlayer.username,
-          turnTime:             lobbyRows[0].turn_time,
+          currentTurnUserId:   nextPlayer.id,
+          currentTurnUsername: nextPlayer.username,
+          turnTime:            lobbyRows[0].turn_time,
           isNewRound,
-          roundNumber:          lobbyRows[0].current_round + (isNewRound ? 1 : 0),
+          roundNumber:         lobbyRows[0].current_round + (isNewRound ? 1 : 0),
         });
-      } catch (err) {
-        console.error('nextTurn error:', err);
-      }
+
+      } catch (err) { console.error('game:nextTurn error:', err); }
     });
 
-    // Player's timer ran out — host advances
     socket.on('game:turnDone', ({ code }) => {
       io.to(`lobby:${code}`).emit('game:turnDone', { userId: user.id, username: user.username });
     });
 
-    // ── Hint submitted — broadcast to lobby BUT NOT saved to chat ────────
-    socket.on('game:submitHint', ({ code, hint }) => {
-      if (!hint || !hint.trim()) return;
-      const word = hint.trim().split(/\s+/)[0].substring(0, 30); // enforce single word
-      io.to(`lobby:${code}`).emit('game:hintSubmitted', {
-        userId:   user.id,
-        username: user.username,
-        hint:     word,
-      });
-    });
-
-    // ── Typing indicators ────────────────────────────────────────────────
-    socket.on('chat:typing', ({ receiverId, isTyping }) => {
-      io.to(`user:${receiverId}`).emit('chat:typing', { senderId: user.id, isTyping });
-    });
-    socket.on('lobby:typing', ({ code, isTyping }) => {
-      socket.to(`lobby:${code}`).emit('lobby:typing', { userId: user.id, username: user.username, isTyping });
-    });
-
-    // ── Disconnect ───────────────────────────────────────────────────────
+    // ── Disconnect ────────────────────────────────────────────────────────
     socket.on('disconnect', async (reason) => {
       console.log(`[Socket] Disconnected: ${user.username} - ${reason}`);
       onlineUsers.delete(user.id);
+
       const { rows: activeGame } = await query(
         `SELECT gl.code FROM lobby_members lm
          JOIN game_lobbies gl ON gl.id = lm.lobby_id
@@ -158,16 +184,16 @@ const setupSocketHandlers = (io) => {
       );
       if (activeGame[0]) {
         io.to(`lobby:${activeGame[0].code}`).emit('game:playerDisconnected', {
-          userId:   user.id,
-          username: user.username,
-          message:  `${user.username} lost internet connection. Consider pausing the game.`,
+          userId: user.id, username: user.username,
+          message: `${user.username} lost internet connection. Consider pausing the game.`,
         });
       }
+
       await query('UPDATE users SET status = $1, last_seen = NOW() WHERE id = $2', ['offline', user.id]);
       io.emit('user:statusChange', { userId: user.id, status: 'offline' });
     });
 
-    // ── Reconnect ────────────────────────────────────────────────────────
+    // ── Reconnect ─────────────────────────────────────────────────────────
     socket.on('user:reconnect', async ({ code }) => {
       if (code) {
         socket.join(`lobby:${code}`);

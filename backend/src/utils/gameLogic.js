@@ -1,12 +1,11 @@
 /**
- * Assign roles to players.
- * Imposters = 20-25% of total, minimum 1.
+ * Assign roles.
+ * Imposters = ~22% of total, minimum 1.
  */
 const assignRoles = (playerIds) => {
   const shuffled = [...playerIds].sort(() => Math.random() - 0.5);
   const total = shuffled.length;
-  const imposterCount = Math.max(1, Math.round(total * 0.22)); // ~22%
-
+  const imposterCount = Math.max(1, Math.round(total * 0.22));
   return {
     imposters: shuffled.slice(0, imposterCount),
     innocents: shuffled.slice(imposterCount),
@@ -14,58 +13,68 @@ const assignRoles = (playerIds) => {
 };
 
 /**
- * Calculate vote result.
- * Returns the eliminated player or indicates a tie.
+ * Tally votes and return result.
+ * Returns eliminated player or a tie.
  */
 const calculateVoteResult = (voteTally) => {
   if (!voteTally || voteTally.length === 0) {
     return { isTie: true, tiedPlayers: [] };
   }
-
   const maxVotes = parseInt(voteTally[0].vote_count);
   const topVoted = voteTally.filter(v => parseInt(v.vote_count) === maxVotes);
 
   if (topVoted.length > 1) {
     return {
       isTie: true,
-      tiedPlayers: topVoted.map(v => ({ userId: v.voted_for_id, username: v.username, votes: parseInt(v.vote_count) })),
+      tiedPlayers: topVoted.map(v => ({
+        userId: v.voted_for_id,
+        username: v.username,
+        votes: parseInt(v.vote_count),
+      })),
     };
   }
-
-  return {
-    isTie: false,
-    eliminated: voteTally[0],
-  };
+  return { isTie: false, eliminated: voteTally[0] };
 };
 
 /**
- * Check if game has ended based on remaining players.
- * 
- * End conditions:
- * - All imposters eliminated → innocents win
- * - Only 1 imposter + 1 innocent remain → imposter gets to guess
- * - Only imposters remain → imposters win
+ * Check end conditions after each elimination.
+ *
+ * Outcomes:
+ *  - No imposters left           → innocents win immediately
+ *  - No innocents left           → imposters win immediately
+ *  - Exactly 1 imposter + 1 innocent remain → imposter gets a final word guess
+ *  - Imposters outnumber innocents (2+ imposters, fewer innocents) → imposters win
+ *  - Otherwise                   → game continues
  */
 const checkGameEnd = (remainingPlayers) => {
   const innocents = remainingPlayers.filter(p => p.role === 'innocent');
   const imposters = remainingPlayers.filter(p => p.role === 'imposter');
 
   if (imposters.length === 0) {
-    return { ended: true, winner: 'innocents', reason: 'All imposters have been eliminated!' };
+    return { ended: true, winner: 'innocents', reason: 'All imposters eliminated!' };
   }
 
   if (innocents.length === 0) {
-    return { ended: true, winner: 'imposters', reason: 'All innocents have been eliminated!' };
+    return { ended: true, winner: 'imposters', reason: 'All innocents eliminated!' };
   }
 
-  // If imposters >= innocents, imposters win (they can't be voted out)
+  // 1 imposter vs 1 innocent → imposter gets to guess the word
+  if (imposters.length === 1 && innocents.length === 1) {
+    return {
+      ended: false,
+      finalGuess: true,
+      reason: 'Last imposter standing — must guess the innocent word!',
+      imposter: imposters[0],
+    };
+  }
+
+  // Multiple imposters remain and they outnumber (or equal) innocents → imposters win
+  // (they could never all be voted out before taking over)
   if (imposters.length >= innocents.length) {
     return {
       ended: true,
       winner: 'imposters',
-      reason: 'Imposters now equal or outnumber innocents!',
-      finalGuessRequired: true,
-      remainingImposters: imposters,
+      reason: 'Imposters outnumber the innocents!',
     };
   }
 
@@ -73,13 +82,15 @@ const checkGameEnd = (remainingPlayers) => {
 };
 
 /**
- * Determine if voting should start.
- * < 5 players: vote after 2 rounds
- * 5+ players: vote after each round
+ * Should voting start automatically after this round completes?
+ *
+ * Rules:
+ *  - 5+ active players  → vote after every round  (roundsPerVote = 1)
+ *  - 3 or 4 players     → vote after every 2 rounds
  */
-const shouldStartVoting = (playerCount, currentRound) => {
-  if (playerCount >= 5) return currentRound >= 1;
-  return currentRound >= 2;
+const shouldStartVoting = (activePlayerCount, roundsCompletedSinceLastVote) => {
+  if (activePlayerCount >= 5) return roundsCompletedSinceLastVote >= 1;
+  return roundsCompletedSinceLastVote >= 2;
 };
 
 module.exports = { assignRoles, calculateVoteResult, checkGameEnd, shouldStartVoting };

@@ -54,6 +54,8 @@ export default function LobbyPage() {
   const [playerHints, setPlayerHints]   = useState({});
   const [hintInput, setHintInput]       = useState('');
   const [showHintCard, setShowHintCard] = useState(false); // flashcard modal
+  const [mustGuess, setMustGuess]         = useState(false);  // imposter final guess prompt
+  const [finalGuessPlayer, setFinalGuessPlayer] = useState(null); // { imposterId, imposterName }
 
   const messagesEndRef   = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -233,13 +235,15 @@ export default function LobbyPage() {
       },
       'game:announcement': ({ message }) => addSystemMsg(message),
 
-      'game:votingStarted': () => {
+      'game:votingStarted': ({ message, auto }) => {
         setVoting(true);
         setMyVote(null);
         setVoteResults({});
         stopTurnTimer();
         setCurrentTurnUserId(null);
-        addSystemMsg('🗳️ Voting started! Click a player on the left to vote.');
+        setShowHintCard(false);
+        addSystemMsg(message || '🗳️ Voting started! Click a player on the left to vote.');
+        if (auto) toast('🗳️ Voting time!', { duration: 3000 });
       },
       'game:voteReceived': ({ totalVotes, totalPlayers, votedForId }) => {
         setVoteResults(v => ({ ...v, [votedForId]: (v[votedForId] || 0) + 1 }));
@@ -256,7 +260,13 @@ export default function LobbyPage() {
             p.id === uid ? { ...p, is_eliminated: true, role, assigned_word: word } : p)
         } : l);
         setVoting(false);
-        addSystemMsg(`💀 ${username} eliminated! They were ${role === 'imposter' ? '🔴 IMPOSTER' : '🔵 INNOCENT'} (word: "${word}")`);
+        setFinalGuessPlayer(null);
+        addSystemMsg(`💀 ${username} eliminated! They were ${role === 'imposter' ? '🔴 IMPOSTER' : '🔵 INNOCENT'} (word: "${word}")`);        // Host restarts turns after a short delay
+        if (isHost) setTimeout(() => {
+          const socket = getSocket();
+          const firstActive = (lobby?.players || []).filter(p => !p.is_eliminated && p.id !== uid);
+          if (firstActive[0] && socket) socket.emit('game:nextTurn', { code, currentTurnUserId: '__start__' });
+        }, 2000);
       },
       'game:paused': ({ pausedBy, reason }) => {
         setPaused(true);
@@ -282,12 +292,23 @@ export default function LobbyPage() {
       'game:wrongGuess': ({ guessedWord, message }) => {
         addSystemMsg(`❌ ${message} (guessed: "${guessedWord}")`);
       },
+      'game:finalGuessRequired': ({ imposterId, imposterName, message }) => {
+        setVoting(false);
+        setFinalGuessPlayer({ imposterId, imposterName });
+        addSystemMsg(message);
+      },
+      'game:youMustGuess': () => {
+        setMustGuess(true);
+        setShowWordGuess(true);
+        toast('⚔️ Guess the innocent word now!', { duration: 5000, icon: '⚔️' });
+      },
       'game:ended': (result) => {
         setGameResult(result);
         setMyRole(null); setMyWord(null);
         setVoting(false); setPlayerHints({});
         stopTurnTimer(); setCurrentTurnUserId(null);
         setShowHintCard(false);
+        setMustGuess(false); setFinalGuessPlayer(null);
         fetchLobby();
         addSystemMsg(`🏆 Game Over! ${result.winner === 'innocents' ? '🔵 Innocents' : '🔴 Imposters'} win! — ${result.reason}`);
         addSystemMsg(`📖 Innocent word: "${result.innocentWord}" | Imposter word: "${result.imposterWord}"`);
@@ -478,13 +499,7 @@ export default function LobbyPage() {
                 <SkipForward size={13} /> Skip
               </button>
             )}
-            {isPlaying && !voting && !isPaused && (
-              <button onClick={startVoting}
-                className="px-3 py-1.5 rounded text-xs flex items-center gap-1"
-                style={{ background: 'var(--purple)', color: 'var(--fg)', border: '1px solid var(--purple-b)' }}>
-                <Vote size={13} /> Vote
-              </button>
-            )}
+            {/* Voting is now automatic — no manual vote button needed */}
             <button onClick={() => setShowSettings(v => !v)} className="btn-ghost p-2 rounded">
               <Settings size={15} />
             </button>
@@ -725,6 +740,21 @@ export default function LobbyPage() {
                 Innocent: <strong style={{ color: 'var(--blue-b)' }}>{gameResult.innocentWord}</strong>
                 &nbsp;·&nbsp;
                 Imposter: <strong style={{ color: 'var(--red-b)' }}>{gameResult.imposterWord}</strong>
+              </div>
+            </div>
+          )}
+
+          {/* Final guess banner — shown to everyone when imposter must guess */}
+          {finalGuessPlayer && !gameResult && (
+            <div className="px-4 py-3 shrink-0 text-center"
+              style={{ background: 'rgba(204,36,29,0.2)', borderBottom: '2px solid var(--red)' }}>
+              <div className="text-sm font-bold" style={{ color: 'var(--red-b)' }}>
+                ⚔️ {finalGuessPlayer.imposterName} must guess the innocent word!
+              </div>
+              <div className="text-xs mt-1" style={{ color: 'var(--fg3)' }}>
+                {finalGuessPlayer.imposterId === user.id
+                  ? 'Use the "Guess Innocent Word" button in your word card →'
+                  : 'Waiting for them to guess...'}
               </div>
             </div>
           )}
