@@ -1,0 +1,71 @@
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: ['./index.html', './src/**/*.{js,jsx,ts,tsx}'],
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        // Gruvbox Dark
+        'grv-bg':       '#282828',
+        'grv-bg1':      '#3c3836',
+        'grv-bg2':      '#504945',
+        'grv-bg3':      '#665c54',
+        'grv-bg4':      '#7c6f64',
+        'grv-fg':       '#ebdbb2',
+        'grv-fg1':      '#d5c4a1',
+        'grv-fg2':      '#bdae93',
+        'grv-fg3':      '#a89984',
+        // Gruvbox Light
+        'grv-lbg':      '#fbf1c7',
+        'grv-lbg1':     '#ebdbb2',
+        'grv-lbg2':     '#d5c4a1',
+        'grv-lbg3':     '#bdae93',
+        'grv-lbg4':     '#a89984',
+        'grv-lfg':      '#3c3836',
+        'grv-lfg1':     '#504945',
+        'grv-lfg2':     '#665c54',
+        // Gruvbox Accents (same in both modes)
+        'grv-red':      '#cc241d',
+        'grv-red-b':    '#fb4934',
+        'grv-green':    '#98971a',
+        'grv-green-b':  '#b8bb26',
+        'grv-yellow':   '#d79921',
+        'grv-yellow-b': '#fabd2f',
+        'grv-blue':     '#458588',
+        'grv-blue-b':   '#83a598',
+        'grv-purple':   '#b16286',
+        'grv-purple-b': '#d3869b',
+        'grv-aqua':     '#689d6a',
+        'grv-aqua-b':   '#8ec07c',
+        'grv-orange':   '#d65d0e',
+        'grv-orange-b': '#fe8019',
+        'grv-gray':     '#928374',
+        'grv-gray-b':   '#a89984',
+      },
+      fontFamily: {
+        mono: ['"JetBrains Mono"', '"Fira Code"', 'Consolas', 'monospace'],
+        display: ['"VT323"', 'monospace'],
+        body: ['"Space Mono"', 'monospace'],
+      },
+      animation: {
+        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        'fade-in': 'fadeIn 0.2s ease-out',
+        'slide-up': 'slideUp 0.3s ease-out',
+        'slide-in-right': 'slideInRight 0.3s ease-out',
+        'blink': 'blink 1s step-end infinite',
+      },
+      keyframes: {
+        fadeIn: { from: { opacity: 0 }, to: { opacity: 1 } },
+        slideUp: { from: { transform: 'translateY(12px)', opacity: 0 }, to: { transform: 'translateY(0)', opacity: 1 } },
+        slideInRight: { from: { transform: 'translateX(20px)', opacity: 0 }, to: { transform: 'translateX(0)', opacity: 1 } },
+        blink: { '0%, 100%': { opacity: 1 }, '50%': { opacity: 0 } },
+      },
+      boxShadow: {
+        'grv': '4px 4px 0px rgba(0,0,0,0.5)',
+        'grv-lg': '6px 6px 0px rgba(0,0,0,0.5)',
+        'grv-inset': 'inset 2px 2px 0px rgba(0,0,0,0.3)',
+      },
+    },
+  },
+  plugins: [],
+};
