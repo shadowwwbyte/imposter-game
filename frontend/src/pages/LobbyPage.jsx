@@ -114,6 +114,19 @@ export default function LobbyPage() {
 
   useEffect(() => { fetchLobby(); fetchMessages(); }, [code]);
 
+  // Re-join lobby socket room and restore state on reconnect
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+    const onReconnect = () => {
+      socket.emit('lobby:join', { code });
+      socket.emit('user:reconnect', { code });
+      fetchLobby();  // restore full game state
+    };
+    socket.on('connect', onReconnect);
+    return () => socket.off('connect', onReconnect);
+  }, [code, getSocket]);
+
   // Track mobile breakpoint reactively
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 768);
@@ -287,30 +300,55 @@ export default function LobbyPage() {
         setVoteResults(v => ({ ...v, [votedForId]: (v[votedForId] || 0) + 1 }));
       },
       'game:voteTie': ({ message, tiedPlayers }) => {
+        // Show who was tied before re-vote
+        if (Array.isArray(tiedPlayers) && tiedPlayers.length > 0) {
+          const names = tiedPlayers.map(p => p.username).join(' & ');
+          addSystemMsg(`⚖️ Tie between ${names} — vote again!`);
+          setRevealedVotes({ tally: Object.fromEntries(tiedPlayers.map(p => [p.username, p.votes])), tied: true, tiedNames: names });
+          setShowVotePopup(true);
+        } else {
+          addSystemMsg(`⚖️ ${message}`);
+        }
         setVoting(true); setMyVote(null); setVoteResults({});
-        setShowVoteCard(true);
-        addSystemMsg(`⚖️ ${message}`);
+        // Reopen vote card after brief delay so popup can be seen
+        setTimeout(() => setShowVoteCard(true), 2500);
       },
-      'game:playerEliminated': ({ userId: uid, username, role, word }) => {
+      'game:playerEliminated': ({ userId: uid, username, role, votes }) => {
+        // Reveal final vote tally for the summary popup
+        const tally = {};
+        if (Array.isArray(votes)) {
+          votes.forEach(v => { tally[v.username] = parseInt(v.vote_count); });
+        }
+        setRevealedVotes({ tally, eliminated: username, role });
+        setShowVotePopup(true);
+
         setLobby(l => l ? {
           ...l,
           players: (l.players || []).map(p =>
-            p.id === uid ? { ...p, is_eliminated: true, role, assigned_word: word } : p)
+            p.id === uid ? { ...p, is_eliminated: true, role } : p)  // no assigned_word stored
         } : l);
         setVoting(false);
         setShowVoteCard(false);
+        setVoteResults({});
         setFinalGuessPlayer(null);
-        addSystemMsg(`💀 ${username} was eliminated! They were ${role === 'imposter' ? '🔴 an Imposter' : '🔵 an Innocent'}.`);        // Host restarts turns after elimination — but not if entering final-guess phase
-        // game:finalGuessRequired fires separately and stops everything
+        addSystemMsg(`💀 ${username} was eliminated! (${role === 'imposter' ? '🔴 Imposter' : '🔵 Innocent'})`);
+
+        // Post vote tally to chat
+        const lines = Object.entries(tally)
+          .sort(([,a],[,b]) => b - a)
+          .map(([name, count]) => `  ${name}: ${count} vote${count !== 1 ? 's' : ''}`)
+          .join('\n');
+        addSystemMsg(`🗳️ Vote results:\n${lines}`);
+
+        // Host restarts turns after elimination — but not if entering final-guess phase
         if (isHost) setTimeout(() => {
           const socket = getSocket();
-          // Skip if final-guess phase started while we were waiting
           if (finalGuessPendingRef.current) return;
           const firstActive = (lobby?.players || []).filter(p => !p.is_eliminated && p.id !== uid);
           if (firstActive[0] && socket) {
             socket.emit('game:nextTurn', { code, currentTurnUserId: '__start__' });
           }
-        }, 2500);
+        }, 3500); // extra delay so popup can be seen
       },
       'game:paused': ({ pausedBy, reason }) => {
         setPaused(true);
@@ -322,16 +360,23 @@ export default function LobbyPage() {
       'game:resumed': ({ resumedBy }) => {
         setPaused(false);
         setPauseInfo(null);
-        if (currentTurnUserId && turnTimeLeftRef.current > 0) startTurnTimer(turnTimeLeftRef.current);
+        // Refresh full lobby state on resume — roles/words may need restoring
+        fetchLobby();
+        // If we had a turn running, restart its timer
+        if (currentTurnUserId && turnTimeLeftRef.current > 0) {
+          startTurnTimer(turnTimeLeftRef.current);
+        }
         addSystemMsg(`▶️ Game resumed by ${resumedBy}`);
       },
       'game:playerDisconnected': ({ username, message }) => {
         setDisconnectedUsers(d => [...d, username]);
         addSystemMsg(`📡 ${message}`);
       },
-      'game:playerReconnected': ({ username }) => {
+      'game:playerReconnected': ({ userId: uid, username }) => {
         setDisconnectedUsers(d => d.filter(u => u !== username));
         addSystemMsg(`✅ ${username} reconnected`);
+        // If this is us reconnecting, refresh lobby state
+        if (uid === user.id) fetchLobby();
       },
       'game:wrongGuess': ({ guessedWord, message }) => {
         addSystemMsg(`❌ ${message}`);
@@ -360,7 +405,8 @@ export default function LobbyPage() {
         setCurrentTurnUserId(null); setCurrentTurnUsername(null);
         setTurnTimeLeft(0); setTurnRound(1);
         setPlayerHints({});
-        setShowHintCard(false); setShowVoteCard(false);
+        setShowHintCard(false); setShowVoteCard(false); setShowVotePopup(false);
+        setRevealedVotes(null);
         setFinalGuessPlayer(null); setMustGuess(false);
         finalGuessPendingRef.current = false;
         setPaused(false); setPauseInfo(null);
@@ -382,7 +428,7 @@ export default function LobbyPage() {
         setShowHintCard(false);
         setMustGuess(false); setFinalGuessPlayer(null);
         finalGuessPendingRef.current = false;
-        setShowVoteCard(false); setVoteCardPlayers([]);
+        setShowVoteCard(false); setVoteCardPlayers([]); setShowVotePopup(false); setRevealedVotes(null);
         // Keep playerHints so result screen shows them
         // lobby:reset event fires 3s later and clears everything
         addSystemMsg(`🏆 Game Over! ${result.winner === 'innocents' ? '🔵 Innocents win!' : '🔴 Imposters win!'}`);
@@ -828,17 +874,12 @@ export default function LobbyPage() {
                       </div>
                       {isElim && p.role && (
                         <div className="text-xs" style={{ color: p.role === 'imposter' ? 'var(--red-b)' : 'var(--blue-b)' }}>
-                          {p.role === 'imposter' ? '🔴' : '🔵'} {p.assigned_word}
+                          {p.role === 'imposter' ? '🔴 Imposter' : '🔵 Innocent'}
                         </div>
                       )}
                     </div>
 
-                    {voting && voteCount > 0 && (
-                      <span className="text-xs font-bold px-1.5 py-0.5 rounded shrink-0"
-                        style={{ background: 'var(--purple)', color: 'var(--fg)' }}>
-                        {voteCount}
-                      </span>
-                    )}
+                    {/* Never show vote counts during active voting — anonymous until reveal */}
                   </div>
 
                   {/* All hints — simple pills, no round labels */}
@@ -882,18 +923,31 @@ export default function LobbyPage() {
 
           {/* Game result */}
           {gameResult && (
-            <div className="p-4 text-center shrink-0 animate-fade-in"
+            <div className="shrink-0 animate-fade-in"
               style={{
                 background: gameResult.winner === 'innocents' ? 'rgba(69,133,136,0.2)' : 'rgba(204,36,29,0.2)',
-                borderBottom: '2px solid ' + (gameResult.winner === 'innocents' ? 'var(--blue)' : 'var(--red)')
+                borderBottom: '2px solid ' + (gameResult.winner === 'innocents' ? 'var(--blue)' : 'var(--red)'),
+                padding: '12px 16px',
               }}>
-              <div className="font-display text-3xl mb-1" style={{ color: 'var(--yellow-b, #fabd2f)' }}>
-                {gameResult.winner === 'innocents' ? '🔵 INNOCENTS WIN!' : '🔴 IMPOSTERS WIN!'}
-              </div>
-              <div className="text-xs" style={{ color: 'var(--fg3)' }}>
-                Innocent: <strong style={{ color: 'var(--blue-b)' }}>{gameResult.innocentWord}</strong>
-                &nbsp;·&nbsp;
-                Imposter: <strong style={{ color: 'var(--red-b)' }}>{gameResult.imposterWord}</strong>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                <div>
+                  <div className="font-display" style={{ fontSize: 22, color: 'var(--yellow-b, #fabd2f)' }}>
+                    {gameResult.winner === 'innocents' ? '🔵 INNOCENTS WIN!' : '🔴 IMPOSTERS WIN!'}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--fg3)', marginTop: 2 }}>
+                    Innocent word: <strong style={{ color: 'var(--blue-b)' }}>{gameResult.innocentWord}</strong>
+                    &nbsp;·&nbsp;
+                    Imposter word: <strong style={{ color: 'var(--red-b)' }}>{gameResult.imposterWord}</strong>
+                  </div>
+                </div>
+                {isHost && (
+                  <button
+                    onClick={startGame}
+                    className="btn-primary"
+                    style={{ padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+                    ▶ Play Again
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -1030,6 +1084,87 @@ export default function LobbyPage() {
           </form>
         </div>
       </div>
+
+
+      {/* ══════════════════════════════════════════════════════════════════
+          VOTE RESULTS POPUP — shown after each voting round ends
+      ══════════════════════════════════════════════════════════════════ */}
+      {showVotePopup && revealedVotes && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 60,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)',
+          padding: 16,
+        }}>
+          <div className="animate-slide-up" style={{
+            width: '100%', maxWidth: 360, borderRadius: 16, overflow: 'hidden',
+            border: revealedVotes.tied ? '2px solid var(--yellow)' : '2px solid var(--purple)',
+            boxShadow: '0 0 40px rgba(177,98,134,0.3)',
+          }}>
+            {/* Header */}
+            <div style={{ background: 'var(--bg1)', padding: '16px 20px', textAlign: 'center' }}>
+              <div style={{ fontFamily: 'VT323, monospace', fontSize: 32,
+                color: revealedVotes.tied ? 'var(--yellow-b, #fabd2f)' : 'var(--purple-b)' }}>
+                {revealedVotes.tied ? '⚖️ TIE!' : '🗳️ VOTE RESULTS'}
+              </div>
+              {revealedVotes.tied && (
+                <div style={{ fontSize: 12, color: 'var(--fg3)', marginTop: 4 }}>
+                  {revealedVotes.tiedNames} are tied — vote again!
+                </div>
+              )}
+              {!revealedVotes.tied && revealedVotes.eliminated && (
+                <div style={{ fontSize: 12, color: 'var(--fg3)', marginTop: 4 }}>
+                  <strong style={{ color: 'var(--red-b)' }}>{revealedVotes.eliminated}</strong> was eliminated
+                </div>
+              )}
+            </div>
+
+            {/* Tally */}
+            <div style={{ background: 'var(--bg2)', padding: '12px 16px', borderTop: '1px solid var(--bg3)' }}>
+              {Object.entries(revealedVotes.tally || {})
+                .sort(([,a],[,b]) => b - a)
+                .map(([name, votes]) => {
+                  const isEliminated = name === revealedVotes.eliminated;
+                  const maxVotes = Math.max(...Object.values(revealedVotes.tally));
+                  const pct = maxVotes > 0 ? (votes / maxVotes) * 100 : 0;
+                  return (
+                    <div key={name} style={{ marginBottom: 10 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <span style={{
+                          fontSize: 13, fontWeight: 700,
+                          color: isEliminated ? 'var(--red-b)' : 'var(--fg)',
+                        }}>
+                          {isEliminated ? '💀 ' : ''}{name}
+                        </span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--fg2)' }}>
+                          {votes} vote{votes !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                      <div style={{ height: 6, borderRadius: 3, background: 'var(--bg3)', overflow: 'hidden' }}>
+                        <div style={{
+                          height: '100%', borderRadius: 3,
+                          width: `${pct}%`,
+                          background: isEliminated ? 'var(--red)' : 'var(--purple)',
+                          transition: 'width 0.6s ease',
+                        }} />
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+
+            {/* Close */}
+            <div style={{ background: 'var(--bg1)', padding: '12px 16px', textAlign: 'center' }}>
+              <button
+                onClick={() => setShowVotePopup(false)}
+                className="btn-ghost"
+                style={{ padding: '8px 32px', borderRadius: 8, fontSize: 13, fontWeight: 700 }}>
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ══════════════════════════════════════════════════════════════════
           HINT FLASHCARD — only visible to the current turn player
