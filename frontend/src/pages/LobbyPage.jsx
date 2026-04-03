@@ -56,6 +56,8 @@ export default function LobbyPage() {
   const [showHintCard, setShowHintCard] = useState(false); // flashcard modal
   const [mustGuess, setMustGuess]         = useState(false);  // imposter final guess prompt
   const [finalGuessPlayer, setFinalGuessPlayer] = useState(null); // { imposterId, imposterName }
+  const [showVoteCard, setShowVoteCard]     = useState(false);  // voting flashcard
+  const [voteCardPlayers, setVoteCardPlayers] = useState([]);   // active non-eliminated players for vote card
 
   const messagesEndRef   = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -206,7 +208,6 @@ export default function LobbyPage() {
         startTurnTimer(turnTime);
         // Clear hints at the start of each new round
         if (isNewRound) {
-          setPlayerHints({});
           addSystemMsg(`🔄 Round ${roundNumber} begins!`);
         }
       },
@@ -243,14 +244,17 @@ export default function LobbyPage() {
         setCurrentTurnUserId(null);
         setShowHintCard(false);
         addSystemMsg(message || '🗳️ Voting started! Click a player on the left to vote.');
+        // Open vote flashcard for all active non-eliminated players
+        setShowVoteCard(true);
         if (auto) toast('🗳️ Voting time!', { duration: 3000 });
       },
       'game:voteReceived': ({ totalVotes, totalPlayers, votedForId }) => {
         setVoteResults(v => ({ ...v, [votedForId]: (v[votedForId] || 0) + 1 }));
         addSystemMsg(`🗳️ Votes cast: ${totalVotes}/${totalPlayers}`);
       },
-      'game:voteTie': ({ message }) => {
+      'game:voteTie': ({ message, tiedPlayers }) => {
         setVoting(true); setMyVote(null); setVoteResults({});
+        setShowVoteCard(true);
         addSystemMsg(`⚖️ ${message}`);
       },
       'game:playerEliminated': ({ userId: uid, username, role, word }) => {
@@ -260,6 +264,7 @@ export default function LobbyPage() {
             p.id === uid ? { ...p, is_eliminated: true, role, assigned_word: word } : p)
         } : l);
         setVoting(false);
+        setShowVoteCard(false);
         setFinalGuessPlayer(null);
         addSystemMsg(`💀 ${username} eliminated! They were ${role === 'imposter' ? '🔴 IMPOSTER' : '🔵 INNOCENT'} (word: "${word}")`);        // Host restarts turns after a short delay
         if (isHost) setTimeout(() => {
@@ -309,6 +314,7 @@ export default function LobbyPage() {
         stopTurnTimer(); setCurrentTurnUserId(null);
         setShowHintCard(false);
         setMustGuess(false); setFinalGuessPlayer(null);
+        setShowVoteCard(false); setVoteCardPlayers([]);
         fetchLobby();
         addSystemMsg(`🏆 Game Over! ${result.winner === 'innocents' ? '🔵 Innocents' : '🔴 Imposters'} win! — ${result.reason}`);
         addSystemMsg(`📖 Innocent word: "${result.innocentWord}" | Imposter word: "${result.imposterWord}"`);
@@ -387,6 +393,7 @@ export default function LobbyPage() {
     try {
       await api.post(`/game/${code}/vote`, { votedForId: targetId });
       setMyVote(targetId);
+      setShowVoteCard(false);
       toast.success('Vote cast!');
     } catch (err) { toast.error(err.response?.data?.error || 'Failed to vote'); }
   };
@@ -759,12 +766,21 @@ export default function LobbyPage() {
             </div>
           )}
 
-          {/* Voting banner */}
-          {voting && !me?.is_eliminated && (
-            <div className="px-4 py-2 shrink-0 text-center text-xs font-bold"
-              style={{ background: 'rgba(177,98,134,0.2)', borderBottom: '1px solid var(--purple)', color: 'var(--purple-b)' }}>
-              🗳️ VOTING — click a player on the left to eliminate
-              {myVote && <span style={{ color: 'var(--green-b)' }}> ✓ Vote cast</span>}
+          {/* Voting: small status bar after flashcard dismissed */}
+          {voting && (
+            <div className="px-4 py-2 shrink-0 flex items-center justify-between text-xs"
+              style={{ background: 'rgba(177,98,134,0.15)', borderBottom: '1px solid var(--purple)' }}>
+              <span style={{ color: 'var(--purple-b)' }}>🗳️ Voting in progress</span>
+              <div className="flex items-center gap-2">
+                {!myVote && !me?.is_eliminated && (
+                  <button onClick={() => setShowVoteCard(true)}
+                    className="text-xs px-2 py-0.5 rounded font-bold"
+                    style={{ background: 'var(--purple)', color: 'var(--fg)' }}>
+                    Open Vote Card
+                  </button>
+                )}
+                {myVote && <span style={{ color: 'var(--green-b)' }}>✓ Vote cast</span>}
+              </div>
             </div>
           )}
 
@@ -949,6 +965,94 @@ export default function LobbyPage() {
                 One word only · submitting ends your turn
               </p>
             </form>
+          </div>
+        </div>
+      )}
+
+
+      {/* ══════════════════════════════════════════════════════════════════
+          VOTE FLASHCARD — shown to each active player during voting
+      ══════════════════════════════════════════════════════════════════ */}
+      {showVoteCard && voting && !me?.is_eliminated && !myVote && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: 'rgba(0,0,0,0.80)', backdropFilter: 'blur(4px)' }}>
+          <div className="animate-slide-up w-full max-w-lg mx-4 rounded-2xl overflow-hidden"
+            style={{ border: '2px solid var(--purple)', boxShadow: '0 0 60px rgba(177,98,134,0.35)' }}>
+
+            {/* Header */}
+            <div className="px-6 pt-6 pb-4 text-center"
+              style={{ background: 'var(--bg1)' }}>
+              <div className="font-display text-5xl mb-1">🗳️</div>
+              <h2 className="font-display text-3xl tracking-widest mb-1"
+                style={{ color: 'var(--purple-b)' }}>
+                VOTE
+              </h2>
+              <p className="text-xs" style={{ color: 'var(--fg3)' }}>
+                Pick who you think is the imposter — most votes gets eliminated
+              </p>
+            </div>
+
+            {/* Player cards grid */}
+            <div className="p-4 grid grid-cols-2 gap-3"
+              style={{ background: 'var(--bg2)', borderTop: '1px solid var(--bg3)', borderBottom: '1px solid var(--bg3)' }}>
+              {(lobby?.players || [])
+                .filter(p => !p.is_eliminated && p.id !== user.id)
+                .map(p => {
+                  const hint     = playerHints[p.id];
+                  const votes    = voteResults[p.id] || 0;
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => castVote(p.id)}
+                      className="flex flex-col items-center gap-2 p-4 rounded-xl transition-all hover:scale-105 active:scale-95"
+                      style={{
+                        background: 'var(--bg)',
+                        border: '2px solid var(--bg3)',
+                        cursor: 'pointer',
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--purple)'}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--bg3)'}
+                    >
+                      {/* Avatar */}
+                      <div className="w-14 h-14 rounded-xl flex items-center justify-center font-bold text-2xl"
+                        style={{ background: p.avatar_color || '#458588', color: '#282828' }}>
+                        {p.username?.[0]?.toUpperCase()}
+                      </div>
+                      {/* Name */}
+                      <div className="font-bold text-sm text-center" style={{ color: 'var(--fg)' }}>
+                        {p.username}
+                      </div>
+                      {/* Hint badge */}
+                      {hint && (
+                        <div className="text-xs px-2 py-0.5 rounded-full font-bold"
+                          style={{ background: 'rgba(104,157,106,0.2)', border: '1px solid var(--aqua)', color: 'var(--aqua-b)' }}>
+                          "{hint}"
+                        </div>
+                      )}
+                      {/* Vote count if any */}
+                      {votes > 0 && (
+                        <div className="text-xs px-2 py-0.5 rounded-full font-bold"
+                          style={{ background: 'var(--purple)', color: 'var(--fg)' }}>
+                          {votes} vote{votes > 1 ? 's' : ''}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 flex items-center justify-between"
+              style={{ background: 'var(--bg1)' }}>
+              <p className="text-xs" style={{ color: 'var(--fg3)' }}>
+                Click a player card to cast your vote
+              </p>
+              <button
+                onClick={() => setShowVoteCard(false)}
+                className="btn-ghost px-3 py-1.5 rounded text-xs">
+                Dismiss
+              </button>
+            </div>
           </div>
         </div>
       )}
