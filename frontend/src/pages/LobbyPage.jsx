@@ -170,7 +170,7 @@ export default function LobbyPage() {
           players: [...(l.players || []).filter(p => p.id !== userId),
             { id: userId, username, avatar_color, is_eliminated: false }]
         } : l);
-        addSystemMsg(`${username} joined the lobby`);
+        // silently update player list — no chat log for join
       },
       'lobby:playerLeft': ({ userId }) => {
         setLobby(l => l ? { ...l, players: (l.players || []).filter(p => p.id !== userId) } : l);
@@ -218,9 +218,7 @@ export default function LobbyPage() {
         setTurnRound(roundNumber);
         startTurnTimer(turnTime);
         // Clear hints at the start of each new round
-        if (isNewRound) {
-          addSystemMsg(`🔄 Round ${roundNumber} begins!`);
-        }
+        // isNewRound — round counter is shown in the turn bar, no need for a chat log
       },
 
       'game:turnDone': ({ userId: uid }) => {
@@ -243,7 +241,7 @@ export default function LobbyPage() {
         setPlayerHints({});
         setTurnRound(1);
         fetchLobby();
-        addSystemMsg(`🎮 Game started! ${ic} imposter${ic > 1 ? 's' : ''} among ${totalPlayers} players. Each player will give a one-word hint on their turn.`);
+        // game:announcement fires the start message — no duplicate here
       },
       'game:announcement': ({ message }) => addSystemMsg(message),
 
@@ -254,14 +252,14 @@ export default function LobbyPage() {
         stopTurnTimer();
         setCurrentTurnUserId(null);
         setShowHintCard(false);
-        addSystemMsg(message || '🗳️ Voting started! Click a player on the left to vote.');
+        addSystemMsg(message || '🗳️ Time to vote!');
         // Open vote flashcard for all active non-eliminated players
         setShowVoteCard(true);
         if (auto) toast('🗳️ Voting time!', { duration: 3000 });
       },
       'game:voteReceived': ({ totalVotes, totalPlayers, votedForId }) => {
+        // Just update vote counts — no per-vote log message (too noisy)
         setVoteResults(v => ({ ...v, [votedForId]: (v[votedForId] || 0) + 1 }));
-        addSystemMsg(`🗳️ Votes cast: ${totalVotes}/${totalPlayers}`);
       },
       'game:voteTie': ({ message, tiedPlayers }) => {
         setVoting(true); setMyVote(null); setVoteResults({});
@@ -277,7 +275,7 @@ export default function LobbyPage() {
         setVoting(false);
         setShowVoteCard(false);
         setFinalGuessPlayer(null);
-        addSystemMsg(`💀 ${username} eliminated! They were ${role === 'imposter' ? '🔴 IMPOSTER' : '🔵 INNOCENT'} (word: "${word}")`);        // Host restarts turns after a short delay
+        addSystemMsg(`💀 ${username} was eliminated! They were ${role === 'imposter' ? '🔴 an Imposter' : '🔵 an Innocent'}.`);        // Host restarts turns after a short delay
         if (isHost) setTimeout(() => {
           const socket = getSocket();
           const firstActive = (lobby?.players || []).filter(p => !p.is_eliminated && p.id !== uid);
@@ -306,7 +304,7 @@ export default function LobbyPage() {
         addSystemMsg(`✅ ${username} reconnected`);
       },
       'game:wrongGuess': ({ guessedWord, message }) => {
-        addSystemMsg(`❌ ${message} (guessed: "${guessedWord}")`);
+        addSystemMsg(`❌ ${message}`);
       },
       'game:finalGuessRequired': ({ imposterId, imposterName, message }) => {
         setVoting(false);
@@ -330,7 +328,7 @@ export default function LobbyPage() {
         setPaused(false); setPauseInfo(null);
         setImposterCount(0);
         fetchLobby(); // refresh lobby status to 'waiting'
-        addSystemMsg(`🔄 ${message}`);
+        addSystemMsg('🔄 Game over — lobby is ready for another round!');
       },
 
       'lobby:discarded': ({ message }) => {
@@ -348,8 +346,7 @@ export default function LobbyPage() {
         setShowVoteCard(false); setVoteCardPlayers([]);
         // Keep playerHints so result screen shows them
         // lobby:reset event fires 3s later and clears everything
-        addSystemMsg(`🏆 Game Over! ${result.winner === 'innocents' ? '🔵 Innocents' : '🔴 Imposters'} win! — ${result.reason}`);
-        addSystemMsg(`📖 Innocent word: "${result.innocentWord}" | Imposter word: "${result.imposterWord}"`);
+        addSystemMsg(`🏆 Game Over! ${result.winner === 'innocents' ? '🔵 Innocents win!' : '🔴 Imposters win!'}`);
       },
     };
 
@@ -487,7 +484,12 @@ export default function LobbyPage() {
     catch (err) { toast.error(err.response?.data?.error || 'Failed'); }
   };
 
-  const copyCode   = () => { navigator.clipboard.writeText(code); toast.success('Code copied!'); };
+  const copyCode = () => {
+    const url = `${window.location.origin}/games/lobby/${code}`;
+    navigator.clipboard.writeText(url)
+      .then(() => toast.success('Lobby link copied!'))
+      .catch(() => { navigator.clipboard.writeText(code); toast.success('Code copied!'); });
+  };
   // Back arrow — just navigates away, player stays in lobby
   const goBack = () => navigate('/games');
 

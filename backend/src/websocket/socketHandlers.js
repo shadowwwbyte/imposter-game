@@ -114,9 +114,7 @@ const setupSocketHandlers = (io) => {
         const isNewRound = nextIdx === 0; // wrapped back to start = round complete
 
         if (isNewRound) {
-          await query('UPDATE game_lobbies SET current_round = current_round + 1 WHERE code = $1', [code]);
-
-          // Check voting conditions
+          // Fetch fresh lobby state (current_round managed by vote route, not here)
           const { rows: [lobbyFull] } = await query(
             `SELECT gl.*, COUNT(lm.user_id) FILTER (WHERE lm.is_eliminated = FALSE) AS active_count
              FROM game_lobbies gl
@@ -126,42 +124,49 @@ const setupSocketHandlers = (io) => {
             [code]
           );
 
-          if (!lobbyFull.voting_started) {
-            const activeCount      = parseInt(lobbyFull.active_count);
-            const roundsSince      = parseInt(lobbyFull.rounds_since_last_vote || 0) + 1;
+          const activeCount = parseInt(lobbyFull.active_count);
+
+          // Never start voting if 2 or fewer players remain — that's final-guess territory
+          // Also never vote if rounds_since_last_vote is negative (finalGuess sentinel)
+          const roundsSinceRaw = parseInt(lobbyFull.rounds_since_last_vote || 0);
+          const finalGuessPending = roundsSinceRaw < 0;
+
+          if (!lobbyFull.voting_started && !finalGuessPending && activeCount > 2) {
+            const { shouldStartVoting } = require('../utils/gameLogic');
+            const roundsSince = roundsSinceRaw + 1;
 
             await query(
               'UPDATE game_lobbies SET rounds_since_last_vote = $1 WHERE code = $2',
               [roundsSince, code]
             );
 
-            const { shouldStartVoting } = require('../utils/gameLogic');
-
             if (shouldStartVoting(activeCount, roundsSince)) {
-              // Auto-start voting
               await query('UPDATE game_lobbies SET voting_started = TRUE WHERE code = $1', [code]);
-
-              const rule = activeCount >= 5
-                ? 'Vote for who you think is the imposter!'
-                : 'Vote for who you think is the imposter!';
-
               io.to(`lobby:${code}`).emit('game:votingStarted', {
-                round:   lobbyFull.current_round + 1,
-                message: `🗳️ Round complete — VOTING TIME! ${rule}`,
+                round:   lobbyFull.current_round,
+                message: `🗳️ Round ${lobbyFull.current_round} complete — time to vote!`,
                 auto:    true,
               });
-              // Don't emit game:turnChanged — voting takes over
+              // Voting takes over — don't emit turnChanged
               return;
             }
+          } else if (finalGuessPending) {
+            // Final guess still pending — don't advance turns
+            return;
           }
         }
+
+        // Re-fetch current_round (may have changed due to eliminations)
+        const { rows: [freshLobby] } = await query(
+          'SELECT current_round FROM game_lobbies WHERE code = $1', [code]
+        );
 
         io.to(`lobby:${code}`).emit('game:turnChanged', {
           currentTurnUserId:   nextPlayer.id,
           currentTurnUsername: nextPlayer.username,
           turnTime:            lobbyRows[0].turn_time,
           isNewRound,
-          roundNumber:         lobbyRows[0].current_round + (isNewRound ? 1 : 0),
+          roundNumber:         freshLobby ? freshLobby.current_round : lobbyRows[0].current_round,
         });
 
       } catch (err) { console.error('game:nextTurn error:', err); }

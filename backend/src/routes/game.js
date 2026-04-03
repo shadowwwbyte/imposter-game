@@ -67,11 +67,11 @@ router.post('/:code/start', authenticate, async (req, res) => {
     }
 
     const votingRule = memberIds.length >= 5
-      ? 'Voting will start automatically after each round.'
-      : 'Voting will start automatically after every 2 rounds.';
+      ? 'Vote after each round.'
+      : 'Vote after every 2 rounds.';
 
     io.to(`lobby:${req.params.code}`).emit('game:announcement', {
-      message: `🎮 Game started! ${imposterCount} imposter${imposterCount > 1 ? 's' : ''} among ${memberIds.length} players. ${votingRule}`,
+      message: `🎮 Game started — ${memberIds.length} players, ${imposterCount} imposter${imposterCount > 1 ? 's' : ''}. ${votingRule}`,
     });
 
     res.json({ message: 'Game started', imposterCount });
@@ -239,18 +239,21 @@ router.post('/:code/vote', authenticate, async (req, res) => {
         if (endCheck.ended) {
           await handleGameEnd(lobby, endCheck, io, req.params.code, query);
         } else if (endCheck.finalGuess) {
-          // 1 imposter vs 1 innocent — imposter must guess
+          // 1 imposter vs 1 innocent — block all future voting, imposter must guess
+          await query(
+            'UPDATE game_lobbies SET voting_started = FALSE, rounds_since_last_vote = -999 WHERE id = $1',
+            [lobby.id]
+          );
           io.to(`lobby:${req.params.code}`).emit('game:finalGuessRequired', {
             imposterId:   endCheck.imposter.user_id,
             imposterName: endCheck.imposter.username,
             message:      `⚔️ ${endCheck.imposter.username} is the last imposter! They must now guess the innocent word.`,
           });
-          // Privately tell the imposter
           io.to(`user:${endCheck.imposter.user_id}`).emit('game:youMustGuess', {
             message: 'You are the last imposter! Guess the innocent word to win.',
           });
         }
-        // else game continues normally — frontend will restart turns
+        // else game continues normally — frontend restarts turns
       }
     }
 
@@ -397,13 +400,9 @@ async function triggerVoting(lobby, roundsSince, io, code, queryFn) {
   );
 
   const activeCount = parseInt(lobby.active_count || 0);
-  const rule = activeCount >= 5
-    ? 'All players vote — most votes gets eliminated.'
-    : 'All players vote — most votes gets eliminated.';
-
   io.to(`lobby:${code}`).emit('game:votingStarted', {
     round: lobby.current_round,
-    message: `🗳️ Round ${roundsSince} complete — time to vote! ${rule}`,
+    message: `🗳️ Round complete — time to vote!`,
   });
 }
 
