@@ -16,7 +16,7 @@ const REACTIONS = ['👍','❤️','😂','😮','🔥','🎮','🕵️','💀']
 export default function LobbyPage() {
   const { code } = useParams();
   const { user } = useAuthStore();
-  const { getSocket } = useSocketStore();
+  const { getSocket, onlineUsers } = useSocketStore();
   const navigate = useNavigate();
 
   const [lobby, setLobby]                   = useState(null);
@@ -58,6 +58,7 @@ export default function LobbyPage() {
   const [finalGuessPlayer, setFinalGuessPlayer] = useState(null); // { imposterId, imposterName }
   const [showVoteCard, setShowVoteCard]     = useState(false);  // voting flashcard
   const [voteCardPlayers, setVoteCardPlayers] = useState([]);   // active non-eliminated players for vote card
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false); // explicit leave confirmation
 
   const messagesEndRef   = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -153,6 +154,16 @@ export default function LobbyPage() {
     socket.emit('lobby:join', { code });
 
     const handlers = {
+      // Update individual player's online status inside this lobby
+      'user:statusChange': ({ userId, status }) => {
+        setLobby(l => l ? {
+          ...l,
+          players: (l.players || []).map(p =>
+            p.id === userId ? { ...p, status } : p
+          )
+        } : l);
+      },
+
       'lobby:playerJoined': ({ userId, username, avatar_color }) => {
         setLobby(l => l ? {
           ...l,
@@ -345,7 +356,7 @@ export default function LobbyPage() {
     Object.entries(handlers).forEach(([ev, fn]) => socket.on(ev, fn));
     return () => {
       Object.keys(handlers).forEach(ev => socket.off(ev, handlers[ev]));
-      socket.emit('lobby:leave', { code });
+      // Do NOT emit lobby:leave — player stays in the lobby, just navigating away
     };
   }, [code, user.id, getSocket, isHost, startTurnTimer, stopTurnTimer, currentTurnUserId, lobby?.turn_time]);
 
@@ -477,7 +488,19 @@ export default function LobbyPage() {
   };
 
   const copyCode   = () => { navigator.clipboard.writeText(code); toast.success('Code copied!'); };
-  const leaveLobby = async () => { try { await api.post(`/lobby/${code}/leave`); } catch {} navigate('/games'); };
+  // Back arrow — just navigates away, player stays in lobby
+  const goBack = () => navigate('/games');
+
+  // Explicit leave — removes player from lobby permanently
+  const leaveLobby = async () => {
+    try {
+      await api.post(`/lobby/${code}/leave`);
+      navigate('/games');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Cannot leave right now');
+    }
+    setShowLeaveConfirm(false);
+  };
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const turnPct     = lobby ? (turnTimeLeft / lobby.turn_time) * 100 : 0;
@@ -500,7 +523,11 @@ export default function LobbyPage() {
       {/* ── Top bar ──────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-3 px-4 py-3 shrink-0"
         style={{ background: 'var(--bg1)', borderBottom: '1px solid var(--bg3)' }}>
-        <button onClick={leaveLobby} className="btn-ghost p-2 rounded"><ArrowLeft size={16} /></button>
+        <div className="relative">
+          <button onClick={goBack} className="btn-ghost p-2 rounded" title="Back to dashboard">
+            <ArrowLeft size={16} />
+          </button>
+        </div>
 
         <div>
           <div className="flex items-center gap-2">
@@ -539,6 +566,16 @@ export default function LobbyPage() {
             <Pause size={13} /> Pause
           </button>
         )}
+
+        {/* Leave lobby — explicit action, separate from back button */}
+        <button
+          onClick={() => setShowLeaveConfirm(true)}
+          className="btn-ghost px-2 py-1.5 rounded text-xs"
+          style={{ color: 'var(--red-b)', opacity: 0.7 }}
+          title="Leave this lobby permanently"
+        >
+          Leave
+        </button>
         {isPaused && (
           <button onClick={resumeGame} className="btn-primary px-3 py-1.5 rounded text-xs flex items-center gap-1">
             <Play size={13} /> Resume
@@ -691,11 +728,23 @@ export default function LobbyPage() {
                       {isLobbyHost && !isElim && (
                         <Crown size={9} className="absolute -top-1 -right-1" style={{ color: 'var(--yellow)' }} />
                       )}
-                      {isDisconnected && (
-                        <WifiOff size={9} className="absolute -bottom-1 -right-1" style={{ color: 'var(--red-b)' }} />
-                      )}
                       {isCurrentTurn && !isElim && (
                         <span className="absolute -bottom-1 -left-1 text-xs leading-none">🎤</span>
+                      )}
+                      {/* Online / offline dot — bottom right */}
+                      {!isCurrentTurn && (
+                        <span
+                          className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2"
+                          style={{
+                            borderColor: 'var(--bg1)',
+                            background: (onlineUsers[p.id] || p.status) === 'online' ? 'var(--green-b)'
+                                      : (onlineUsers[p.id] || p.status) === 'busy'   ? 'var(--red-b)'
+                                      : 'var(--bg3)',
+                          }}
+                          title={(onlineUsers[p.id] || p.status) === 'online' ? 'Online'
+                               : (onlineUsers[p.id] || p.status) === 'busy'   ? 'In game'
+                               : 'Offline'}
+                        />
                       )}
                     </div>
 
@@ -990,6 +1039,32 @@ export default function LobbyPage() {
         </div>
       )}
 
+
+      {/* ── Leave lobby confirmation ─────────────────────────────────────── */}
+      {showLeaveConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.7)' }}>
+          <div className="grv-panel rounded-xl p-6 w-full max-w-sm animate-slide-up">
+            <h3 className="font-bold text-lg mb-2" style={{ color: 'var(--red-b)' }}>Leave Lobby?</h3>
+            <p className="text-sm mb-4" style={{ color: 'var(--fg3)' }}>
+              You'll be removed from <strong style={{ color: 'var(--fg)' }}>{lobby?.name}</strong>.
+              {lobby?.status === 'playing'
+                ? ' The game is in progress — pause it first before leaving.'
+                : ' You can rejoin later with the lobby code.'}
+            </p>
+            <div className="flex gap-2">
+              {lobby?.status !== 'playing' && (
+                <button onClick={leaveLobby} className="btn-danger flex-1 py-2 rounded text-sm font-bold">
+                  Leave
+                </button>
+              )}
+              <button onClick={() => setShowLeaveConfirm(false)} className="btn-ghost flex-1 py-2 rounded text-sm">
+                {lobby?.status === 'playing' ? 'OK' : 'Cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ══════════════════════════════════════════════════════════════════
           VOTE FLASHCARD — shown to each active player during voting
