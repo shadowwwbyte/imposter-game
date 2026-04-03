@@ -108,10 +108,13 @@ const setupSocketHandlers = (io) => {
         );
         if (!playerRows.length) return;
 
-        const currentIdx = playerRows.findIndex(p => p.id === currentTurnUserId);
-        const nextIdx    = (currentIdx + 1) % playerRows.length;
-        const nextPlayer = playerRows[nextIdx];
-        const isNewRound = nextIdx === 0; // wrapped back to start = round complete
+        // '__start__' means the game just started — first player, no round completion
+        const isFirstTurn = currentTurnUserId === '__start__';
+        const currentIdx  = isFirstTurn ? -1 : playerRows.findIndex(p => p.id === currentTurnUserId);
+        const nextIdx     = (currentIdx + 1) % playerRows.length;
+        const nextPlayer  = playerRows[nextIdx];
+        // A new round only completes when we wrap back to index 0 AND it's not the very first turn
+        const isNewRound  = !isFirstTurn && nextIdx === 0;
 
         if (isNewRound) {
           // Fetch fresh lobby state (current_round managed by vote route, not here)

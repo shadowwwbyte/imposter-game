@@ -59,7 +59,8 @@ export default function LobbyPage() {
   const [showVoteCard, setShowVoteCard]     = useState(false);  // voting flashcard
   const [voteCardPlayers, setVoteCardPlayers] = useState([]);   // active non-eliminated players for vote card
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false); // explicit leave confirmation
-  const [mobileTab, setMobileTab] = useState('players'); // 'players' | 'chat' — mobile only
+  const [mobileTab, setMobileTab] = useState('chat'); // 'players' | 'chat' — mobile only, default chat
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
 
   const messagesEndRef   = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -85,6 +86,16 @@ export default function LobbyPage() {
       setLobby(data);
       setPaused(data.status === 'paused');
       setSettings({ turnTime: data.turn_time, maxPlayers: data.max_players });
+
+      // Restore game state if rejoining a game in progress
+      if (data.status === 'playing' || data.status === 'paused') {
+        const me = (data.players || []).find(p => p.id === user.id);
+        if (me && me.assigned_word && !myWord) {
+          // Player rejoined mid-game — restore their role and word
+          setMyRole(me.role);
+          setMyWord(me.assigned_word);
+        }
+      }
     } catch {
       toast.error('Lobby not found');
       navigate('/games');
@@ -101,6 +112,13 @@ export default function LobbyPage() {
   };
 
   useEffect(() => { fetchLobby(); fetchMessages(); }, [code]);
+
+  // Track mobile breakpoint reactively
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   // ── Turn timer ────────────────────────────────────────────────────────────
   const startTurnTimer = useCallback((seconds) => {
@@ -647,7 +665,7 @@ export default function LobbyPage() {
       )}
 
       {/* ── Mobile tab switcher (hidden on md+) ─────────────────────────── */}
-      {isPlaying && (
+      {isMobile && (
         <div className="md:hidden flex shrink-0" style={{ background: 'var(--bg2)', borderBottom: '1px solid var(--bg3)' }}>
           <button
             onClick={() => setMobileTab('players')}
@@ -671,9 +689,12 @@ export default function LobbyPage() {
 
         {/* ── Players panel ──────────────────────────────────────────────── */}
         <div
-          className={clsx('flex-col shrink-0', mobileTab === 'players' ? 'flex' : 'hidden', 'md:flex md:w-64')}
-          style={{ background: 'var(--bg1)', borderRight: '1px solid var(--bg3)',
-                   width: mobileTab === 'players' ? '100%' : undefined }}>
+          className="flex-col shrink-0"
+          style={{
+            background: 'var(--bg1)', borderRight: '1px solid var(--bg3)',
+            width: isMobile ? '100%' : 256,
+            display: isMobile ? (mobileTab === 'players' ? 'flex' : 'none') : 'flex',
+          }}>
 
           {/* My word card */}
           {myWord && (
@@ -688,10 +709,10 @@ export default function LobbyPage() {
                 {myWord}
               </div>
               <div className="text-xs mt-1" style={{ color: 'var(--fg3)' }}>Your secret word</div>
-              {myRole === 'imposter' && isPlaying && !isPaused && (
+              {myRole === 'imposter' && isPlaying && !isPaused && mustGuess && (
                 <button onClick={() => setShowWordGuess(true)}
-                  className="mt-2 btn-danger w-full py-1 rounded text-xs">
-                  Guess Innocent Word
+                  className="mt-2 btn-danger w-full py-1 rounded text-xs animate-pulse-slow">
+                  ⚔️ Guess the Innocent Word!
                 </button>
               )}
             </div>
@@ -826,7 +847,11 @@ export default function LobbyPage() {
         </div>
 
         {/* ── Chat panel ─────────────────────────────────────────────────── */}
-        <div className={clsx('flex-col overflow-hidden', mobileTab === 'chat' ? 'flex flex-1' : 'hidden', 'md:flex md:flex-1')}>
+        <div
+          style={{
+            display: isMobile ? (mobileTab === 'chat' ? 'flex' : 'none') : 'flex',
+            flex: 1, flexDirection: 'column', overflow: 'hidden',
+          }}>
 
           {/* Game result */}
           {gameResult && (
