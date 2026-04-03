@@ -405,11 +405,12 @@ export default function LobbyPage() {
     const word = trimmed.split(/\s+/)[0];
 
     const socket = getSocket();
-    // Broadcast to all players via a dedicated socket event (NOT lobby:message)
+    // 1. Broadcast hint to all players (shown in player list)
     socket?.emit('game:submitHint', { code, hint: word });
+    // 2. Also post as a chat message so the chatroom shows it
+    socket?.emit('lobby:message', { code, content: `💬 Hint: "${word}"` });
 
-    // Update local state immediately
-    setPlayerHints(h => ({ ...h, [user.id]: [...(h[user.id] || []), word] }));
+    // game:hintSubmitted comes back from server for everyone — no local update needed
     setShowHintCard(false);
 
     // Advance turn
@@ -840,22 +841,19 @@ export default function LobbyPage() {
                     )}
                   </div>
 
-                  {/* All round hints — stacked pills below name */}
+                  {/* All hints — simple pills, no round labels */}
                   {hint && hint.length > 0 && !isElim && (
                     <div className="mt-1.5 ml-10 flex flex-wrap gap-1">
                       {hint.map((h, i) => (
-                        <span
-                          key={i}
-                          className="text-xs font-bold px-2 py-0.5 rounded"
-                          style={{
-                            background: 'rgba(104,157,106,0.15)',
-                            border: '1px solid var(--aqua)',
-                            color: 'var(--aqua-b)',
-                            wordBreak: 'break-word',
-                          }}
-                          title={`Round ${i + 1}: ${h}`}
-                        >
-                          R{i + 1}: {h}
+                        <span key={i} style={{
+                          fontSize: 11, fontWeight: 700,
+                          padding: '2px 7px', borderRadius: 10,
+                          background: 'rgba(104,157,106,0.15)',
+                          border: '1px solid var(--aqua)',
+                          color: 'var(--aqua-b)',
+                          wordBreak: 'break-word',
+                        }}>
+                          {h}
                         </span>
                       ))}
                     </div>
@@ -1197,15 +1195,20 @@ export default function LobbyPage() {
                       <div className="font-bold text-xs md:text-sm text-center truncate max-w-full" style={{ color: 'var(--fg)' }}>
                         {p.username}
                       </div>
-                      {/* All hints across rounds */}
+                      {/* All hints — no round labels */}
                       {hint && hint.length > 0 && (
-                        <div className="flex flex-col gap-1 w-full items-center">
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center', width: '100%' }}>
                           {hint.map((h, i) => (
-                            <div key={i}
-                              className="text-xs px-2 py-0.5 rounded font-bold w-full text-center"
-                              style={{ background: 'rgba(104,157,106,0.2)', border: '1px solid var(--aqua)', color: 'var(--aqua-b)', wordBreak: 'break-word' }}>
-                              <span style={{ opacity: 0.6, fontSize: 9 }}>R{i+1} </span>{h}
-                            </div>
+                            <span key={i} style={{
+                              fontSize: 11, fontWeight: 700,
+                              padding: '2px 8px', borderRadius: 10,
+                              background: 'rgba(104,157,106,0.2)',
+                              border: '1px solid var(--aqua)',
+                              color: 'var(--aqua-b)',
+                              wordBreak: 'break-word',
+                            }}>
+                              {h}
+                            </span>
                           ))}
                         </div>
                       )}
