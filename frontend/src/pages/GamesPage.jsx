@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Sword, Users, Clock, Copy, Trash2, LogIn, Pause, Play, Settings } from 'lucide-react';
+import { Plus, Sword, Users, Clock, Copy, Trash2, LogIn, Play } from 'lucide-react';
 import api from '../utils/api';
 import { useAuthStore } from '../store/authStore';
 import { useSocketStore } from '../store/socketStore';
@@ -14,33 +14,26 @@ export default function GamesPage() {
   const { getSocket } = useSocketStore();
   const navigate = useNavigate();
 
-  const [myLobbies, setMyLobbies]     = useState([]);
-  const [loading, setLoading]         = useState(true);
-  const [showCreate, setShowCreate]   = useState(false);
-  const [joinCode, setJoinCode]       = useState('');
-  const [createForm, setCreateForm]   = useState({ name: '', maxPlayers: 10, turnTime: 30, wordCategory: 'general' });
+  const [myLobbies, setMyLobbies]   = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [joinCode, setJoinCode]     = useState('');
+  const [createForm, setCreateForm] = useState({ name: '', maxPlayers: 10, turnTime: 30, wordCategory: 'general' });
 
   const fetchLobbies = async () => {
-    try {
-      const { data } = await api.get('/lobby/mine');
-      setMyLobbies(data);
-    } catch {}
+    try { const { data } = await api.get('/lobby/mine'); setMyLobbies(data); } catch {}
     setLoading(false);
   };
 
   useEffect(() => { fetchLobbies(); }, []);
 
-  // Listen for lobby:reset and lobby:discarded to refresh dashboard
   useEffect(() => {
     const socket = getSocket();
     if (!socket) return;
     const refresh = () => fetchLobbies();
-    socket.on('lobby:reset',     refresh);
+    socket.on('lobby:reset', refresh);
     socket.on('lobby:discarded', refresh);
-    return () => {
-      socket.off('lobby:reset',     refresh);
-      socket.off('lobby:discarded', refresh);
-    };
+    return () => { socket.off('lobby:reset', refresh); socket.off('lobby:discarded', refresh); };
   }, [getSocket]);
 
   const createLobby = async (e) => {
@@ -58,272 +51,220 @@ export default function GamesPage() {
     e.preventDefault();
     if (!joinCode.trim()) return;
     const code = joinCode.trim().toUpperCase();
-    try {
-      await api.post(`/lobby/${code}/join`);
-      navigate(`/games/lobby/${code}`);
-    } catch (err) { toast.error(err.response?.data?.error || 'Failed to join lobby'); }
+    try { await api.post(`/lobby/${code}/join`); navigate(`/games/lobby/${code}`); }
+    catch (err) { toast.error(err.response?.data?.error || 'Failed to join'); }
   };
 
   const discardLobby = async (code) => {
-    if (!confirm('Discard this lobby? All members will be removed.')) return;
-    try {
-      await api.delete(`/lobby/${code}`);
-      toast.success('Lobby discarded');
-      setMyLobbies(l => l.filter(lb => lb.code !== code));
-    } catch (err) { toast.error(err.response?.data?.error || 'Failed'); }
+    if (!confirm('Discard this lobby?')) return;
+    try { await api.delete(`/lobby/${code}`); setMyLobbies(l => l.filter(lb => lb.code !== code)); toast.success('Lobby discarded'); }
+    catch (err) { toast.error(err.response?.data?.error || 'Failed'); }
   };
 
   const leaveLobby = async (code) => {
-    try {
-      await api.post(`/lobby/${code}/leave`);
-      toast.success('Left lobby');
-      setMyLobbies(l => l.filter(lb => lb.code !== code));
-    } catch (err) { toast.error(err.response?.data?.error || 'Cannot leave right now — pause the game first'); }
+    try { await api.post(`/lobby/${code}/leave`); setMyLobbies(l => l.filter(lb => lb.code !== code)); toast.success('Left lobby'); }
+    catch (err) { toast.error(err.response?.data?.error || 'Pause the game first'); }
   };
 
-  const copyCode = (code) => { navigator.clipboard.writeText(code); toast.success('Code copied!'); };
+  const copyCode = (code) => { navigator.clipboard.writeText(code); toast.success('Copied!'); };
 
-  // Group lobbies by status
   const activePlaying = myLobbies.filter(l => l.status === 'playing');
   const activePaused  = myLobbies.filter(l => l.status === 'paused');
   const waiting       = myLobbies.filter(l => l.status === 'waiting');
 
   return (
-    <div className="h-full overflow-y-auto p-4 md:p-6" style={{ color: 'var(--fg)' }}>
+    <div style={{
+      height: '100%',
+      overflowY: 'auto',
+      overflowX: 'hidden',
+      WebkitOverflowScrolling: 'touch',
+      color: 'var(--fg)',
+      padding: '16px',
+    }}>
       {/* Header */}
-      <div className="flex items-center justify-between mb-4 gap-2">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 8 }}>
         <div>
-          <h1 className="font-display text-4xl" style={{ color: 'var(--yellow-b, #fabd2f)' }}>GAMES</h1>
-          <p className="text-xs mt-1" style={{ color: 'var(--fg3)' }}>
-            Your lobbies persist — play as many rounds as you want
-          </p>
+          <h1 style={{ fontFamily: 'VT323, monospace', fontSize: 36, color: 'var(--yellow-b, #fabd2f)', margin: 0 }}>GAMES</h1>
+          <p style={{ fontSize: 11, color: 'var(--fg3)', margin: 0 }}>Create or join a lobby</p>
         </div>
-        <button onClick={() => setShowCreate(v => !v)} className="btn-primary flex items-center gap-2 px-4 py-2 rounded text-sm">
-          <Plus size={16} /> New Lobby
+        <button onClick={() => setShowCreate(v => !v)} className="btn-primary"
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, fontSize: 13, whiteSpace: 'nowrap' }}>
+          <Plus size={15} /> New Lobby
         </button>
       </div>
 
-      {/* Join by code */}
-      <form onSubmit={joinLobby} className="flex gap-2 mb-4">
-        <input
-          value={joinCode}
-          onChange={e => setJoinCode(e.target.value.toUpperCase())}
-          placeholder="Enter lobby code to join (e.g. AB3X7K)"
-          maxLength={6}
-          className="grv-input flex-1 py-2.5 px-4 rounded text-sm uppercase tracking-widest font-bold"
-        />
-        <button type="submit" className="btn-primary px-4 py-2 rounded flex items-center gap-2 text-sm">
-          <LogIn size={16} /> Join
+      {/* Join */}
+      <form onSubmit={joinLobby} style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <input value={joinCode} onChange={e => setJoinCode(e.target.value.toUpperCase())}
+          placeholder="Lobby code (e.g. AB3X7K)" maxLength={6}
+          className="grv-input"
+          style={{ flex: 1, padding: '10px 14px', borderRadius: 8, fontSize: 16, textTransform: 'uppercase', letterSpacing: 4, fontWeight: 700 }} />
+        <button type="submit" className="btn-primary"
+          style={{ padding: '10px 16px', borderRadius: 8, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+          <LogIn size={15} /> Join
         </button>
       </form>
 
       {/* Create form */}
       {showCreate && (
-        <form onSubmit={createLobby} className="grv-panel rounded-lg p-4 mb-6 animate-fade-in">
-          <h3 className="font-bold mb-4" style={{ color: 'var(--aqua-b)' }}>Create New Lobby</h3>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2">
-              <label className="text-xs mb-1 block" style={{ color: 'var(--fg3)' }}>Lobby Name</label>
-              <input className="grv-input w-full py-2 px-3 rounded text-sm" placeholder="My Epic Lobby"
-                value={createForm.name} onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))} />
+        <form onSubmit={createLobby} className="grv-panel" style={{ borderRadius: 12, padding: 16, marginBottom: 16 }}>
+          <h3 style={{ fontWeight: 700, marginBottom: 12, color: 'var(--aqua-b)', fontSize: 14 }}>Create New Lobby</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--fg3)', display: 'block', marginBottom: 4 }}>Lobby Name</label>
+              <input className="grv-input" style={{ width: '100%', padding: '9px 12px', borderRadius: 8, fontSize: 16, boxSizing: 'border-box' }}
+                placeholder="My Epic Lobby" value={createForm.name} onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))} />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>
+                <label style={{ fontSize: 11, color: 'var(--fg3)', display: 'block', marginBottom: 4 }}>Max Players</label>
+                <input type="number" min={3} max={20} className="grv-input"
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: 8, fontSize: 16, boxSizing: 'border-box' }}
+                  value={createForm.maxPlayers} onChange={e => setCreateForm(f => ({ ...f, maxPlayers: +e.target.value }))} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: 'var(--fg3)', display: 'block', marginBottom: 4 }}>Turn Time (s)</label>
+                <input type="number" min={15} max={120} className="grv-input"
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: 8, fontSize: 16, boxSizing: 'border-box' }}
+                  value={createForm.turnTime} onChange={e => setCreateForm(f => ({ ...f, turnTime: +e.target.value }))} />
+              </div>
             </div>
             <div>
-              <label className="text-xs mb-1 block" style={{ color: 'var(--fg3)' }}>Max Players</label>
-              <input type="number" min={3} max={20} className="grv-input w-full py-2 px-3 rounded text-sm"
-                value={createForm.maxPlayers} onChange={e => setCreateForm(f => ({ ...f, maxPlayers: +e.target.value }))} />
-            </div>
-            <div>
-              <label className="text-xs mb-1 block" style={{ color: 'var(--fg3)' }}>Turn Time (sec)</label>
-              <input type="number" min={15} max={120} className="grv-input w-full py-2 px-3 rounded text-sm"
-                value={createForm.turnTime} onChange={e => setCreateForm(f => ({ ...f, turnTime: +e.target.value }))} />
-            </div>
-            <div className="col-span-2">
-              <label className="text-xs mb-1 block" style={{ color: 'var(--fg3)' }}>Word Category</label>
-              <div className="flex flex-wrap gap-2">
+              <label style={{ fontSize: 11, color: 'var(--fg3)', display: 'block', marginBottom: 6 }}>Word Category</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {CATEGORIES.map(c => (
                   <button key={c} type="button"
                     onClick={() => setCreateForm(f => ({ ...f, wordCategory: c }))}
-                    className={clsx('px-3 py-1 rounded text-xs font-bold capitalize transition-all',
-                      createForm.wordCategory === c ? 'btn-primary' : 'btn-ghost')}>
+                    className={createForm.wordCategory === c ? 'btn-primary' : 'btn-ghost'}
+                    style={{ padding: '5px 12px', borderRadius: 6, fontSize: 12, fontWeight: 700, textTransform: 'capitalize' }}>
                     {c}
                   </button>
                 ))}
               </div>
             </div>
-          </div>
-          <div className="flex gap-2 mt-4">
-            <button type="submit" className="btn-primary px-4 py-2 rounded text-sm flex items-center gap-2">
-              <Plus size={14} /> Create
-            </button>
-            <button type="button" onClick={() => setShowCreate(false)} className="btn-ghost px-4 py-2 rounded text-sm">Cancel</button>
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+              <button type="submit" className="btn-primary" style={{ flex: 1, padding: '10px', borderRadius: 8, fontSize: 13, fontWeight: 700 }}>
+                Create
+              </button>
+              <button type="button" onClick={() => setShowCreate(false)} className="btn-ghost"
+                style={{ padding: '10px 16px', borderRadius: 8, fontSize: 13 }}>
+                Cancel
+              </button>
+            </div>
           </div>
         </form>
       )}
 
       {loading ? (
-        <div className="text-center py-16" style={{ color: 'var(--fg3)' }}>Loading your lobbies...</div>
+        <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--fg3)' }}>Loading...</div>
       ) : (
-        <div className="space-y-8">
-
-          {/* ── Active / Playing ── */}
-          {activePlaying.length > 0 && (
-            <Section title="🎮 In Progress" colour="var(--blue-b)">
-              {activePlaying.map(lobby => (
-                <LobbyCard key={lobby.id} lobby={lobby} user={user}
-                  onOpen={() => navigate(`/games/lobby/${lobby.code}`)}
-                  onCopy={() => copyCode(lobby.code)}
-                  onLeave={() => leaveLobby(lobby.code)}
-                  onDiscard={() => discardLobby(lobby.code)}
-                  isHost={lobby.host_id === user.id}
-                />
-              ))}
-            </Section>
-          )}
-
-          {/* ── Paused ── */}
-          {activePaused.length > 0 && (
-            <Section title="⏸ Paused" colour="var(--yellow-b, #fabd2f)">
-              <p className="text-xs mb-3 px-1" style={{ color: 'var(--fg3)' }}>
-                These games are paused. Click a lobby to rejoin and resume.
-              </p>
-              {activePaused.map(lobby => (
-                <LobbyCard key={lobby.id} lobby={lobby} user={user}
-                  onOpen={() => navigate(`/games/lobby/${lobby.code}`)}
-                  onCopy={() => copyCode(lobby.code)}
-                  onLeave={() => leaveLobby(lobby.code)}
-                  onDiscard={() => discardLobby(lobby.code)}
-                  isHost={lobby.host_id === user.id}
-                />
-              ))}
-            </Section>
-          )}
-
-          {/* ── Waiting ── */}
-          {waiting.length > 0 && (
-            <Section title="⏳ Waiting to Start" colour="var(--green-b)">
-              {waiting.map(lobby => (
-                <LobbyCard key={lobby.id} lobby={lobby} user={user}
-                  onOpen={() => navigate(`/games/lobby/${lobby.code}`)}
-                  onCopy={() => copyCode(lobby.code)}
-                  onLeave={() => leaveLobby(lobby.code)}
-                  onDiscard={() => discardLobby(lobby.code)}
-                  isHost={lobby.host_id === user.id}
-                />
-              ))}
-            </Section>
-          )}
-
-          {/* ── Empty state ── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+          {activePlaying.length > 0 && <Section title="🎮 In Progress" color="var(--blue-b)" lobbies={activePlaying} user={user} navigate={navigate} onCopy={copyCode} onLeave={leaveLobby} onDiscard={discardLobby} />}
+          {activePaused.length > 0  && <Section title="⏸ Paused"      color="var(--yellow-b, #fabd2f)" lobbies={activePaused}  user={user} navigate={navigate} onCopy={copyCode} onLeave={leaveLobby} onDiscard={discardLobby} desc="These games are paused. Tap to rejoin and resume." />}
+          {waiting.length > 0       && <Section title="⏳ Waiting"     color="var(--green-b)"            lobbies={waiting}       user={user} navigate={navigate} onCopy={copyCode} onLeave={leaveLobby} onDiscard={discardLobby} />}
           {myLobbies.length === 0 && (
-            <div className="text-center py-16" style={{ color: 'var(--fg3)' }}>
-              <Sword size={36} className="mx-auto mb-3 opacity-20" />
-              <p className="mb-1">No lobbies yet.</p>
-              <p className="text-xs">Create one or ask a friend for their lobby code.</p>
+            <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--fg3)' }}>
+              <Sword size={36} style={{ opacity: 0.2, margin: '0 auto 12px' }} />
+              <p>No lobbies yet.</p>
+              <p style={{ fontSize: 12 }}>Create one or ask a friend for their lobby code.</p>
             </div>
           )}
         </div>
       )}
+
+      {/* Bottom spacer so last card isn't hidden */}
+      <div style={{ height: 16 }} />
     </div>
   );
 }
 
-function Section({ title, colour, children }) {
+function Section({ title, color, lobbies, user, navigate, onCopy, onLeave, onDiscard, desc }) {
   return (
     <div>
-      <h2 className="text-xs font-bold tracking-widest mb-3" style={{ color: colour }}>
-        {title}
-      </h2>
-      <div className="space-y-2">{children}</div>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color, marginBottom: 8 }}>{title}</div>
+      {desc && <p style={{ fontSize: 12, color: 'var(--fg3)', marginBottom: 10, marginTop: -4 }}>{desc}</p>}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {lobbies.map(lobby => <LobbyCard key={lobby.id} lobby={lobby} user={user} navigate={navigate} onCopy={onCopy} onLeave={onLeave} onDiscard={onDiscard} />)}
+      </div>
     </div>
   );
 }
 
-function LobbyCard({ lobby, user, onOpen, onCopy, onLeave, onDiscard, isHost }) {
-  const statusColour = {
-    waiting:  'var(--green-b)',
-    playing:  'var(--blue-b)',
-    paused:   'var(--yellow-b, #fabd2f)',
-    finished: 'var(--fg3)',
-  }[lobby.status] || 'var(--fg3)';
-
+function LobbyCard({ lobby, user, navigate, onCopy, onLeave, onDiscard }) {
+  const isHost = lobby.host_id === user.id;
+  const statusColor = { waiting: 'var(--green-b)', playing: 'var(--blue-b)', paused: 'var(--yellow-b, #fabd2f)' }[lobby.status] || 'var(--fg3)';
   const players = Array.isArray(lobby.players) ? lobby.players.filter(Boolean) : [];
 
   return (
-    <div className="grv-panel rounded-lg p-3 md:p-4 flex items-center gap-3 md:gap-4 group transition-all hover:border-grv-bg4"
-      style={{ borderColor: 'var(--bg3)' }}>
+    <div className="grv-panel" style={{ borderRadius: 12, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+        {/* Code badge */}
+        <div style={{
+          fontFamily: 'VT323, monospace', fontSize: 20, letterSpacing: 3,
+          color: 'var(--yellow-b, #fabd2f)', background: 'var(--bg)',
+          padding: '4px 10px', borderRadius: 6, flexShrink: 0,
+        }}>{lobby.code}</div>
 
-      {/* Code */}
-      <div className="font-display text-xl tracking-widest px-3 py-2 rounded shrink-0 text-center"
-        style={{ background: 'var(--bg)', color: 'var(--yellow-b, #fabd2f)', minWidth: 90 }}>
-        {lobby.code}
-      </div>
-
-      {/* Info */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="font-bold text-sm truncate">{lobby.name}</span>
-          {isHost && (
-            <span className="text-xs px-1.5 py-0.5 rounded font-bold shrink-0"
-              style={{ background: 'rgba(215,153,33,0.2)', color: 'var(--yellow)', border: '1px solid var(--yellow)' }}>
-              HOST
-            </span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-3 text-xs" style={{ color: 'var(--fg3)' }}>
-          <span className="flex items-center gap-1">
-            <Users size={11} /> {lobby.player_count}/{lobby.max_players}
-          </span>
-          <span className="flex items-center gap-1">
-            <Clock size={11} /> {lobby.turn_time}s
-          </span>
-          <span className="font-bold capitalize" style={{ color: statusColour }}>
-            ● {lobby.status}
-          </span>
-          {lobby.pause_reason && (
-            <span className="truncate max-w-32" title={lobby.pause_reason}>
-              — {lobby.pause_reason}
-            </span>
-          )}
-        </div>
-
-        {/* Player avatars */}
-        {players.length > 0 && (
-          <div className="flex items-center gap-1 mt-2">
-            {players.slice(0, 8).map(p => p && (
-              <div key={p.id} title={p.username}
-                className="w-6 h-6 rounded flex items-center justify-center text-xs font-bold"
-                style={{ background: p.avatar_color || '#458588', color: '#282828' }}>
-                {p.username?.[0]?.toUpperCase()}
-              </div>
-            ))}
-            {players.length > 8 && (
-              <span className="text-xs" style={{ color: 'var(--fg3)' }}>+{players.length - 8}</span>
+        {/* Info */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 700, fontSize: 14, wordBreak: 'break-word' }}>{lobby.name}</span>
+            {isHost && (
+              <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: 'rgba(215,153,33,0.2)', color: 'var(--yellow)', border: '1px solid var(--yellow)', flexShrink: 0 }}>HOST</span>
             )}
           </div>
-        )}
+          <div style={{ display: 'flex', gap: 10, marginTop: 4, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, color: 'var(--fg3)', display: 'flex', alignItems: 'center', gap: 3 }}>
+              <Users size={11} /> {lobby.player_count}/{lobby.max_players}
+            </span>
+            <span style={{ fontSize: 12, color: 'var(--fg3)', display: 'flex', alignItems: 'center', gap: 3 }}>
+              <Clock size={11} /> {lobby.turn_time}s
+            </span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: statusColor, textTransform: 'capitalize' }}>
+              ● {lobby.status}
+            </span>
+          </div>
+          {/* Player avatars */}
+          {players.length > 0 && (
+            <div style={{ display: 'flex', gap: 4, marginTop: 8, flexWrap: 'wrap' }}>
+              {players.slice(0, 8).map(p => p && (
+                <div key={p.id} title={p.username} style={{
+                  width: 24, height: 24, borderRadius: 6,
+                  background: p.avatar_color || '#458588', color: '#282828',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 11, fontWeight: 700,
+                }}>
+                  {p.username?.[0]?.toUpperCase()}
+                </div>
+              ))}
+              {players.length > 8 && <span style={{ fontSize: 11, color: 'var(--fg3)', alignSelf: 'center' }}>+{players.length - 8}</span>}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Actions */}
-      <div className="flex gap-1 shrink-0">
-        <button onClick={onCopy} className="btn-ghost p-2 rounded opacity-0 group-hover:opacity-100 transition-opacity" title="Copy code">
-          <Copy size={14} />
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={() => navigate(`/games/lobby/${lobby.code}`)} className="btn-primary"
+          style={{ flex: 1, padding: '10px', borderRadius: 8, fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+          {lobby.status === 'paused' ? <><Play size={13} /> Resume</> : lobby.status === 'playing' ? <><Play size={13} /> Rejoin</> : <><LogIn size={13} /> Open</>}
         </button>
-        <button onClick={onOpen} className="btn-primary px-3 py-2 rounded text-xs font-bold flex items-center gap-1">
-          {lobby.status === 'paused' ? <><Play size={13} /> Resume</> :
-           lobby.status === 'playing' ? <><Play size={13} /> Rejoin</> :
-           <><LogIn size={13} /> Open</>}
+        <button onClick={() => onCopy(lobby.code)} className="btn-ghost"
+          style={{ padding: '10px 12px', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          title="Copy link">
+          <Copy size={15} />
         </button>
-        {!isHost && (
-          <button onClick={onLeave} className="btn-ghost p-2 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-            title="Leave lobby" style={{ color: 'var(--orange-b)' }}>
-            <LogIn size={14} style={{ transform: 'scaleX(-1)' }} />
+        {isHost ? (
+          <button onClick={() => onDiscard(lobby.code)} className="btn-ghost"
+            style={{ padding: '10px 12px', borderRadius: 8, color: 'var(--red-b)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            title="Discard lobby">
+            <Trash2 size={15} />
           </button>
-        )}
-        {isHost && (
-          <button onClick={onDiscard} className="btn-ghost p-2 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-            title="Discard lobby" style={{ color: 'var(--red-b)' }}>
-            <Trash2 size={14} />
+        ) : (
+          <button onClick={() => onLeave(lobby.code)} className="btn-ghost"
+            style={{ padding: '10px 12px', borderRadius: 8, color: 'var(--orange-b)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            title="Leave lobby">
+            <LogIn size={15} style={{ transform: 'scaleX(-1)' }} />
           </button>
         )}
       </div>

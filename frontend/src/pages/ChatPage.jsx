@@ -170,10 +170,10 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="h-full flex relative" style={{ color: 'var(--fg)' }}>
+    <div style={{ height: '100%', display: 'flex', position: 'relative', color: 'var(--fg)', overflow: 'hidden' }}>
       {/* Sidebar */}
-      <div className={`${mobileShowChat ? 'hidden' : 'flex'} md:flex flex-col shrink-0 md:w-64`}
-        style={{ background: 'var(--bg1)', borderRight: '1px solid var(--bg3)', width: mobileShowChat ? 0 : '100%' }}>
+      <div style={{ display: mobileShowChat ? 'none' : 'flex', flexDirection: 'column', flexShrink: 0, background: 'var(--bg1)', borderRight: '1px solid var(--bg3)', width: '100%', maxWidth: 260, overflow: 'hidden' }} className='md-chat-sidebar'>
+      <style>{'.md-chat-sidebar { max-width: 100% !important; } @media (min-width: 768px) { .md-chat-sidebar { max-width: 260px !important; display: flex !important; } }'}</style>
         <div className="p-4">
           <h1 className="font-display text-2xl mb-3" style={{ color: 'var(--yellow-b, #fabd2f)' }}>CHAT</h1>
           <div className="relative">
@@ -201,7 +201,7 @@ export default function ChatPage() {
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto">
+        <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
           {conversations.map(conv => (
             <button
               key={conv.other_user_id}
@@ -235,7 +235,8 @@ export default function ChatPage() {
       </div>
 
       {/* Chat area */}
-      <div className={`${mobileShowChat ? 'flex' : 'hidden'} md:flex flex-1 flex-col`}>
+      <div style={{ display: mobileShowChat ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden', minWidth: 0 }} className='md-chat-area'>
+      <style>{`@media (min-width: 768px) { .md-chat-area { display: flex !important; } }`}</style>
         {activeUser ? (
           <>
             {/* Header */}

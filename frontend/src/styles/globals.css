@@ -222,6 +222,11 @@
 .glow-red    { box-shadow: 0 0 20px rgba(204, 36, 29, 0.4); }
 .glow-blue   { box-shadow: 0 0 20px rgba(69, 133, 136, 0.4); }
 
+/* ── dvh fix for mobile browsers (address bar aware) ────────────────────── */
+:root {
+  --app-height: 100dvh;
+}
+
 /* ── Mobile fixes ─────────────────────────────────────────────────────────── */
 
 /* Prevent iOS zoom on input focus */

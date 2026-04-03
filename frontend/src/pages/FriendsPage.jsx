@@ -95,8 +95,12 @@ export default function FriendsPage() {
   const filtered = accepted.filter(f => f.username.toLowerCase().includes(search.toLowerCase()));
 
   return (
-    <div className="h-full flex flex-col p-4 md:p-6 overflow-y-auto" style={{ color: 'var(--fg)' }}>
-      <h1 className="font-display text-3xl md:text-4xl mb-1" style={{ color: 'var(--yellow-b, #fabd2f)' }}>FRIENDS</h1>
+    <div style={{
+      height: '100%', overflowY: 'auto', overflowX: 'hidden',
+      WebkitOverflowScrolling: 'touch', color: 'var(--fg)', padding: 16,
+      display: 'flex', flexDirection: 'column',
+    }}>
+      <h1 style={{ fontFamily: 'VT323, monospace', fontSize: 36, color: 'var(--yellow-b, #fabd2f)', margin: '0 0 4px' }}>FRIENDS</h1>
       <p className="text-xs mb-6" style={{ color: 'var(--fg3)' }}>Connect with other players</p>
 
       {/* Add friend */}
@@ -211,6 +215,7 @@ export default function FriendsPage() {
           </div>
         )}
       </div>
+      <div style={{ height: 8 }} />
     </div>
   );
 }

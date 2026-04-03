@@ -3,7 +3,6 @@ import { Sword, Users, MessageSquare, User, LogOut, Sun, Moon } from 'lucide-rea
 import { useAuthStore, useThemeStore } from '../../store/authStore';
 import { useSocketStore } from '../../store/socketStore';
 import { useState, useEffect } from 'react';
-import clsx from 'clsx';
 import toast from 'react-hot-toast';
 
 export default function MainLayout() {
@@ -31,109 +30,165 @@ export default function MainLayout() {
     toast.success('Logged out!');
   };
 
-  const navItems = [
-    { to: '/games',   icon: <Sword size={20} />,         label: 'Games'   },
-    { to: '/friends', icon: <Users size={20} />,         label: 'Friends', badge: notifCount },
-    { to: '/chat',    icon: <MessageSquare size={20} />, label: 'Chat'    },
-    { to: '/profile', icon: <User size={20} />,          label: 'Profile' },
-  ];
-
-  // Hide bottom nav inside a lobby (full-screen game UI)
   const inLobby = location.pathname.includes('/games/lobby/');
 
+  const navItems = [
+    { to: '/games',   icon: <Sword size={22} />,         label: 'Games'   },
+    { to: '/friends', icon: <Users size={22} />,         label: 'Friends', badge: notifCount },
+    { to: '/chat',    icon: <MessageSquare size={22} />, label: 'Chat'    },
+    { to: '/profile', icon: <User size={22} />,          label: 'Profile' },
+  ];
+
   return (
-    <div className="flex h-screen overflow-hidden" style={{ background: 'var(--bg)' }}>
+    <div style={{ display: 'flex', height: '100dvh', background: 'var(--bg)', overflow: 'hidden' }}>
 
-      {/* ── Desktop sidebar (hidden on mobile) ───────────────────────────── */}
-      <aside
-        className="hidden md:flex w-16 flex-col items-center py-4 gap-2 shrink-0"
-        style={{ background: 'var(--bg1)', borderRight: '1px solid var(--bg3)' }}
+      {/* ── Desktop sidebar ── */}
+      <aside style={{
+        display: 'none',
+        width: 64,
+        flexDirection: 'column',
+        alignItems: 'center',
+        padding: '16px 0',
+        gap: 8,
+        flexShrink: 0,
+        background: 'var(--bg1)',
+        borderRight: '1px solid var(--bg3)',
+      }}
+        className="md-sidebar"
       >
-        <div className="mb-4 text-2xl cursor-pointer" onClick={() => navigate('/games')}>🕵️</div>
+        <style>{`
+          @media (min-width: 768px) {
+            .md-sidebar { display: flex !important; }
+            .mobile-bottom-nav { display: none !important; }
+            .main-content { padding-bottom: 0 !important; }
+          }
+        `}</style>
 
-        <nav className="flex flex-col gap-1 flex-1">
+        <div style={{ fontSize: 24, cursor: 'pointer', marginBottom: 16 }} onClick={() => navigate('/games')}>🕵️</div>
+
+        <nav style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
           {navItems.map(({ to, icon, label, badge }) => (
-            <NavLink key={to} to={to} title={label}
-              className={({ isActive }) =>
-                clsx('nav-item w-10 h-10 flex items-center justify-center rounded-lg transition-all relative',
-                  isActive && 'active')
-              }
-            >
+            <NavLink key={to} to={to} title={label} style={({ isActive }) => ({
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: 40, height: 40, borderRadius: 8, position: 'relative',
+              color: isActive ? 'var(--yellow-b, #fabd2f)' : 'var(--fg3)',
+              background: isActive ? 'var(--bg2)' : 'transparent',
+              textDecoration: 'none', transition: 'all 0.15s',
+            })}>
               {icon}
               {badge > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full text-xs flex items-center justify-center font-bold"
-                  style={{ background: 'var(--red)', color: 'var(--fg)', fontSize: 9 }}>
-                  {badge}
-                </span>
+                <span style={{
+                  position: 'absolute', top: -4, right: -4,
+                  width: 16, height: 16, borderRadius: '50%',
+                  background: 'var(--red)', color: 'var(--fg)',
+                  fontSize: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700,
+                }}>{badge}</span>
               )}
             </NavLink>
           ))}
         </nav>
 
-        <div className="flex flex-col gap-1 items-center">
-          <button onClick={toggleTheme} className="nav-item w-10 h-10 flex items-center justify-center rounded-lg"
-            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
+          <button onClick={toggleTheme} title="Toggle theme" style={{
+            width: 40, height: 40, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: 'var(--fg3)', background: 'transparent', border: 'none', cursor: 'pointer',
+          }}>
             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
           </button>
-          <button className="w-10 h-10 rounded-lg flex items-center justify-center font-bold text-sm border-2"
-            onClick={() => navigate('/profile')}
-            style={{ background: user?.avatar_color || '#458588', borderColor: 'var(--bg3)', color: '#282828' }}
-            title={user?.username}>
+          <button onClick={() => navigate('/profile')} style={{
+            width: 40, height: 40, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: user?.avatar_color || '#458588', color: '#282828', fontWeight: 700, fontSize: 14,
+            border: '2px solid var(--bg3)', cursor: 'pointer',
+          }} title={user?.username}>
             {user?.username?.[0]?.toUpperCase()}
           </button>
-          <button onClick={handleLogout} className="nav-item w-10 h-10 flex items-center justify-center rounded-lg"
-            title="Logout" style={{ color: 'var(--red-b)' }}>
+          <button onClick={handleLogout} title="Logout" style={{
+            width: 40, height: 40, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: 'var(--red-b)', background: 'transparent', border: 'none', cursor: 'pointer',
+          }}>
             <LogOut size={18} />
           </button>
         </div>
       </aside>
 
-      {/* ── Main content ──────────────────────────────────────────────────── */}
-      <main className={clsx('flex-1 overflow-hidden flex flex-col', !inLobby && 'md:pb-0 pb-16')}>
+      {/* ── Main content area ── */}
+      <main className="main-content" style={{
+        flex: 1,
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        // Reserve space for bottom nav on mobile
+        paddingBottom: inLobby ? 0 : 'calc(60px + env(safe-area-inset-bottom))',
+      }}>
         <Outlet />
       </main>
 
-      {/* ── Mobile bottom nav (hidden on desktop, hidden inside lobby) ───── */}
+      {/* ── Mobile bottom nav ── */}
       {!inLobby && (
-        <nav
-          className="md:hidden fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around px-2 py-1"
-          style={{
-            background: 'var(--bg1)',
-            borderTop: '1px solid var(--bg3)',
-            paddingBottom: 'env(safe-area-inset-bottom)',
-            minHeight: 56,
-          }}
-        >
+        <nav className="mobile-bottom-nav" style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 50,
+          display: 'flex',
+          alignItems: 'stretch',
+          background: 'var(--bg1)',
+          borderTop: '1px solid var(--bg3)',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+        }}>
           {navItems.map(({ to, icon, label, badge }) => (
-            <NavLink key={to} to={to}
-              className={({ isActive }) =>
-                clsx('flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg transition-all relative',
-                  isActive
-                    ? 'text-yellow-400'
-                    : 'text-grv-fg3'
-                )
-              }
-              style={({ isActive }) => ({ color: isActive ? 'var(--yellow-b, #fabd2f)' : 'var(--fg3)' })}
-            >
-              <div className="relative">
+            <NavLink key={to} to={to} style={({ isActive }) => ({
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 3,
+              padding: '10px 4px',
+              textDecoration: 'none',
+              color: isActive ? 'var(--yellow-b, #fabd2f)' : 'var(--fg3)',
+              borderTop: isActive ? '2px solid var(--yellow)' : '2px solid transparent',
+              transition: 'all 0.15s',
+              position: 'relative',
+            })}>
+              <div style={{ position: 'relative' }}>
                 {icon}
                 {badge > 0 && (
-                  <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full text-xs flex items-center justify-center font-bold"
-                    style={{ background: 'var(--red)', color: 'var(--fg)', fontSize: 9 }}>
-                    {badge}
-                  </span>
+                  <span style={{
+                    position: 'absolute', top: -6, right: -6,
+                    width: 16, height: 16, borderRadius: '50%',
+                    background: 'var(--red)', color: 'var(--fg)',
+                    fontSize: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700,
+                  }}>{badge}</span>
                 )}
               </div>
-              <span className="text-xs font-bold" style={{ fontSize: 10 }}>{label}</span>
+              <span style={{ fontSize: 10, fontWeight: 700, fontFamily: '"JetBrains Mono", monospace' }}>{label}</span>
             </NavLink>
           ))}
 
-          {/* Theme toggle in bottom nav */}
-          <button onClick={toggleTheme}
-            className="flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg"
-            style={{ color: 'var(--fg3)' }}>
-            {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
-            <span style={{ fontSize: 10 }} className="font-bold">Theme</span>
+          {/* Theme toggle */}
+          <button onClick={toggleTheme} style={{
+            flex: 1,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            gap: 3, padding: '10px 4px',
+            color: 'var(--fg3)', background: 'transparent', border: 'none',
+            borderTop: '2px solid transparent', cursor: 'pointer',
+          }}>
+            {theme === 'dark' ? <Sun size={22} /> : <Moon size={22} />}
+            <span style={{ fontSize: 10, fontWeight: 700, fontFamily: '"JetBrains Mono", monospace' }}>Theme</span>
+          </button>
+
+          {/* Logout */}
+          <button onClick={handleLogout} style={{
+            flex: 1,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            gap: 3, padding: '10px 4px',
+            color: 'var(--red-b)', background: 'transparent', border: 'none',
+            borderTop: '2px solid transparent', cursor: 'pointer',
+          }}>
+            <LogOut size={22} />
+            <span style={{ fontSize: 10, fontWeight: 700, fontFamily: '"JetBrains Mono", monospace' }}>Logout</span>
           </button>
         </nav>
       )}
