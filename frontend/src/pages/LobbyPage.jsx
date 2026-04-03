@@ -67,7 +67,8 @@ export default function LobbyPage() {
   const typingTimeoutRef = useRef(null);
   const turnTimerRef     = useRef(null);
   const turnTimeLeftRef  = useRef(0);
-  const hintInputRef     = useRef(null);
+  const hintInputRef        = useRef(null);
+  const finalGuessPendingRef = useRef(false); // ref so socket closures always get fresh value
 
   const isHost        = lobby?.host_id === user.id;
   const me            = lobby?.players?.find(p => p.id === user.id);
@@ -145,14 +146,15 @@ export default function LobbyPage() {
 
   // Show flashcard when it becomes my turn
   useEffect(() => {
-    if (isMyTurn && isPlaying && !isPaused) {
+    // Don't show hint card if final-guess phase or voting is happening
+    if (isMyTurn && isPlaying && !isPaused && !finalGuessPlayer && !voting) {
       setHintInput('');
       setShowHintCard(true);
       setTimeout(() => hintInputRef.current?.focus(), 100);
     } else {
       setShowHintCard(false);
     }
-  }, [isMyTurn, isPlaying, isPaused]);
+  }, [isMyTurn, isPlaying, isPaused, finalGuessPlayer, voting]);
 
   // ── System message helper (NOT in chat — separate) ────────────────────────
   const addSystemMsg = (content) => {
@@ -241,7 +243,8 @@ export default function LobbyPage() {
       },
 
       'game:turnDone': ({ userId: uid }) => {
-        if (isHost) {
+        // Use ref so this closure always reads the latest value
+        if (isHost && !finalGuessPendingRef.current) {
           setTimeout(() => {
             getSocket()?.emit('game:nextTurn', { code, currentTurnUserId: uid });
           }, 800);
@@ -294,12 +297,17 @@ export default function LobbyPage() {
         setVoting(false);
         setShowVoteCard(false);
         setFinalGuessPlayer(null);
-        addSystemMsg(`💀 ${username} was eliminated! They were ${role === 'imposter' ? '🔴 an Imposter' : '🔵 an Innocent'}.`);        // Host restarts turns after a short delay
+        addSystemMsg(`💀 ${username} was eliminated! They were ${role === 'imposter' ? '🔴 an Imposter' : '🔵 an Innocent'}.`);        // Host restarts turns after elimination — but not if entering final-guess phase
+        // game:finalGuessRequired fires separately and stops everything
         if (isHost) setTimeout(() => {
           const socket = getSocket();
+          // Skip if final-guess phase started while we were waiting
+          if (finalGuessPendingRef.current) return;
           const firstActive = (lobby?.players || []).filter(p => !p.is_eliminated && p.id !== uid);
-          if (firstActive[0] && socket) socket.emit('game:nextTurn', { code, currentTurnUserId: '__start__' });
-        }, 2000);
+          if (firstActive[0] && socket) {
+            socket.emit('game:nextTurn', { code, currentTurnUserId: '__start__' });
+          }
+        }, 2500);
       },
       'game:paused': ({ pausedBy, reason }) => {
         setPaused(true);
@@ -326,14 +334,21 @@ export default function LobbyPage() {
         addSystemMsg(`❌ ${message}`);
       },
       'game:finalGuessRequired': ({ imposterId, imposterName, message }) => {
+        // Stop everything — turn phase is over, final guess takes over
+        finalGuessPendingRef.current = true;
         setVoting(false);
+        stopTurnTimer();
+        setCurrentTurnUserId(null);
+        setCurrentTurnUsername(null);
+        setShowHintCard(false);
+        setShowVoteCard(false);
         setFinalGuessPlayer({ imposterId, imposterName });
         addSystemMsg(message);
       },
       'game:youMustGuess': () => {
         setMustGuess(true);
-        setShowWordGuess(true);
-        toast('⚔️ Guess the innocent word now!', { duration: 5000, icon: '⚔️' });
+        // Don't auto-open the modal — let the imposter click the button themselves
+        toast('⚔️ You must guess the innocent word! Tap the button on your card.', { duration: 6000 });
       },
       'lobby:reset': ({ message }) => {
         // Lobby is back to waiting — clear all game state locally
@@ -344,6 +359,7 @@ export default function LobbyPage() {
         setPlayerHints({});
         setShowHintCard(false); setShowVoteCard(false);
         setFinalGuessPlayer(null); setMustGuess(false);
+        finalGuessPendingRef.current = false;
         setPaused(false); setPauseInfo(null);
         setImposterCount(0);
         fetchLobby(); // refresh lobby status to 'waiting'
@@ -362,6 +378,7 @@ export default function LobbyPage() {
         stopTurnTimer(); setCurrentTurnUserId(null);
         setShowHintCard(false);
         setMustGuess(false); setFinalGuessPlayer(null);
+        finalGuessPendingRef.current = false;
         setShowVoteCard(false); setVoteCardPlayers([]);
         // Keep playerHints so result screen shows them
         // lobby:reset event fires 3s later and clears everything
@@ -709,10 +726,17 @@ export default function LobbyPage() {
                 {myWord}
               </div>
               <div className="text-xs mt-1" style={{ color: 'var(--fg3)' }}>Your secret word</div>
-              {myRole === 'imposter' && isPlaying && !isPaused && mustGuess && (
-                <button onClick={() => setShowWordGuess(true)}
-                  className="mt-2 btn-danger w-full py-1 rounded text-xs animate-pulse-slow">
-                  ⚔️ Guess the Innocent Word!
+              {myRole === 'imposter' && isPlaying && mustGuess && (
+                <button
+                  onClick={() => setShowWordGuess(true)}
+                  className="mt-2 w-full py-2 rounded text-xs font-bold"
+                  style={{
+                    background: 'var(--red)',
+                    color: 'var(--fg)',
+                    border: '2px solid var(--red-b)',
+                    animation: 'pulse 1.5s ease-in-out infinite',
+                  }}>
+                  ⚔️ Tap to Guess the Word
                 </button>
               )}
             </div>
