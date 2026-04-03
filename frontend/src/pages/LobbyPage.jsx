@@ -50,7 +50,7 @@ export default function LobbyPage() {
   const [turnRound, setTurnRound]                     = useState(1);
 
   // ── Hint state ───────────────────────────────────────────────────────────
-  // playerHints: { [userId]: string }  — latest hint per player this round
+  // playerHints: { [userId]: string[] }  — ALL hints per player across all rounds
   const [playerHints, setPlayerHints]   = useState({});
   const [hintInput, setHintInput]       = useState('');
   const [showHintCard, setShowHintCard] = useState(false); // flashcard modal
@@ -229,7 +229,10 @@ export default function LobbyPage() {
       // ── Hint submitted by a player ──
       // Shown next to player name — NOT in chat
       'game:hintSubmitted': ({ userId: uid, hint }) => {
-        setPlayerHints(h => ({ ...h, [uid]: hint }));
+        setPlayerHints(h => ({
+          ...h,
+          [uid]: [...(h[uid] || []), hint],  // append, keep all rounds' hints
+        }));
       },
 
       // ── Turn events ──
@@ -406,7 +409,7 @@ export default function LobbyPage() {
     socket?.emit('game:submitHint', { code, hint: word });
 
     // Update local state immediately
-    setPlayerHints(h => ({ ...h, [user.id]: word }));
+    setPlayerHints(h => ({ ...h, [user.id]: [...(h[user.id] || []), word] }));
     setShowHintCard(false);
 
     // Advance turn
@@ -709,7 +712,7 @@ export default function LobbyPage() {
           className="flex-col shrink-0"
           style={{
             background: 'var(--bg1)', borderRight: '1px solid var(--bg3)',
-            width: isMobile ? '100%' : 256,
+            width: isMobile ? '100%' : 280,
             display: isMobile ? (mobileTab === 'players' ? 'flex' : 'none') : 'flex',
           }}>
 
@@ -837,22 +840,24 @@ export default function LobbyPage() {
                     )}
                   </div>
 
-                  {/* Row 2: hint badge — shown below name, NOT in chat */}
-                  {hint && !isElim && (
-                    <div className="mt-1.5 ml-10 flex items-center gap-1">
-                      <MessageSquare size={10} style={{ color: 'var(--aqua)', flexShrink: 0 }} />
-                      <span
-                        className="text-xs font-bold px-2 py-0.5 rounded-full truncate"
-                        style={{
-                          background: 'rgba(104,157,106,0.15)',
-                          border: '1px solid var(--aqua)',
-                          color: 'var(--aqua-b)',
-                          maxWidth: 120,
-                        }}
-                        title={hint}
-                      >
-                        "{hint}"
-                      </span>
+                  {/* All round hints — stacked pills below name */}
+                  {hint && hint.length > 0 && !isElim && (
+                    <div className="mt-1.5 ml-10 flex flex-wrap gap-1">
+                      {hint.map((h, i) => (
+                        <span
+                          key={i}
+                          className="text-xs font-bold px-2 py-0.5 rounded"
+                          style={{
+                            background: 'rgba(104,157,106,0.15)',
+                            border: '1px solid var(--aqua)',
+                            color: 'var(--aqua-b)',
+                            wordBreak: 'break-word',
+                          }}
+                          title={`Round ${i + 1}: ${h}`}
+                        >
+                          R{i + 1}: {h}
+                        </span>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -1192,11 +1197,16 @@ export default function LobbyPage() {
                       <div className="font-bold text-xs md:text-sm text-center truncate max-w-full" style={{ color: 'var(--fg)' }}>
                         {p.username}
                       </div>
-                      {/* Hint badge */}
-                      {hint && (
-                        <div className="text-xs px-2 py-0.5 rounded-full font-bold"
-                          style={{ background: 'rgba(104,157,106,0.2)', border: '1px solid var(--aqua)', color: 'var(--aqua-b)' }}>
-                          "{hint}"
+                      {/* All hints across rounds */}
+                      {hint && hint.length > 0 && (
+                        <div className="flex flex-col gap-1 w-full items-center">
+                          {hint.map((h, i) => (
+                            <div key={i}
+                              className="text-xs px-2 py-0.5 rounded font-bold w-full text-center"
+                              style={{ background: 'rgba(104,157,106,0.2)', border: '1px solid var(--aqua)', color: 'var(--aqua-b)', wordBreak: 'break-word' }}>
+                              <span style={{ opacity: 0.6, fontSize: 9 }}>R{i+1} </span>{h}
+                            </div>
+                          ))}
                         </div>
                       )}
                       {/* Vote count if any */}
