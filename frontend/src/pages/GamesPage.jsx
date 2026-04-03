@@ -89,9 +89,9 @@ export default function GamesPage() {
   const waiting       = myLobbies.filter(l => l.status === 'waiting');
 
   return (
-    <div className="h-full overflow-y-auto p-6" style={{ color: 'var(--fg)' }}>
+    <div className="h-full overflow-y-auto p-4 md:p-6" style={{ color: 'var(--fg)' }}>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4 gap-2">
         <div>
           <h1 className="font-display text-4xl" style={{ color: 'var(--yellow-b, #fabd2f)' }}>GAMES</h1>
           <p className="text-xs mt-1" style={{ color: 'var(--fg3)' }}>
@@ -104,7 +104,7 @@ export default function GamesPage() {
       </div>
 
       {/* Join by code */}
-      <form onSubmit={joinLobby} className="flex gap-2 mb-6">
+      <form onSubmit={joinLobby} className="flex gap-2 mb-4">
         <input
           value={joinCode}
           onChange={e => setJoinCode(e.target.value.toUpperCase())}
@@ -249,7 +249,7 @@ function LobbyCard({ lobby, user, onOpen, onCopy, onLeave, onDiscard, isHost }) 
   const players = Array.isArray(lobby.players) ? lobby.players.filter(Boolean) : [];
 
   return (
-    <div className="grv-panel rounded-lg p-4 flex items-center gap-4 group transition-all hover:border-grv-bg4"
+    <div className="grv-panel rounded-lg p-3 md:p-4 flex items-center gap-3 md:gap-4 group transition-all hover:border-grv-bg4"
       style={{ borderColor: 'var(--bg3)' }}>
 
       {/* Code */}

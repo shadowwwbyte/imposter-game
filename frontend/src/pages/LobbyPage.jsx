@@ -59,6 +59,7 @@ export default function LobbyPage() {
   const [showVoteCard, setShowVoteCard]     = useState(false);  // voting flashcard
   const [voteCardPlayers, setVoteCardPlayers] = useState([]);   // active non-eliminated players for vote card
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false); // explicit leave confirmation
+  const [mobileTab, setMobileTab] = useState('players'); // 'players' | 'chat' — mobile only
 
   const messagesEndRef   = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -523,7 +524,7 @@ export default function LobbyPage() {
     <div className="h-full flex flex-col" style={{ color: 'var(--fg)' }}>
 
       {/* ── Top bar ──────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-3 px-4 py-3 shrink-0"
+      <div className="flex items-center gap-2 px-3 py-2.5 shrink-0 flex-wrap"
         style={{ background: 'var(--bg1)', borderBottom: '1px solid var(--bg3)' }}>
         <div className="relative">
           <button onClick={goBack} className="btn-ghost p-2 rounded" title="Back to dashboard">
@@ -533,7 +534,7 @@ export default function LobbyPage() {
 
         <div>
           <div className="flex items-center gap-2">
-            <span className="font-display text-xl tracking-widest" style={{ color: 'var(--yellow-b, #fabd2f)' }}>{code}</span>
+            <span className="font-display text-base md:text-xl tracking-widest" style={{ color: 'var(--yellow-b, #fabd2f)' }}>{code}</span>
             <button onClick={copyCode} className="p-1 rounded" style={{ color: 'var(--fg3)' }}><Copy size={13} /></button>
           </div>
           <div className="text-xs" style={{ color: 'var(--fg3)' }}>
@@ -547,7 +548,7 @@ export default function LobbyPage() {
         {isHost && (
           <div className="flex gap-1">
             {isWaiting && (
-              <button onClick={startGame} className="btn-primary px-3 py-1.5 rounded text-xs flex items-center gap-1">
+              <button onClick={startGame} className="btn-primary px-2 md:px-3 py-1.5 rounded text-xs flex items-center gap-1">
                 <Play size={13} /> Start
               </button>
             )}
@@ -645,12 +646,34 @@ export default function LobbyPage() {
         </div>
       )}
 
+      {/* ── Mobile tab switcher (hidden on md+) ─────────────────────────── */}
+      {isPlaying && (
+        <div className="md:hidden flex shrink-0" style={{ background: 'var(--bg2)', borderBottom: '1px solid var(--bg3)' }}>
+          <button
+            onClick={() => setMobileTab('players')}
+            className="flex-1 py-2.5 text-xs font-bold transition-colors"
+            style={{ color: mobileTab === 'players' ? 'var(--yellow-b, #fabd2f)' : 'var(--fg3)',
+                     borderBottom: mobileTab === 'players' ? '2px solid var(--yellow)' : '2px solid transparent' }}>
+            👥 Players
+          </button>
+          <button
+            onClick={() => setMobileTab('chat')}
+            className="flex-1 py-2.5 text-xs font-bold transition-colors"
+            style={{ color: mobileTab === 'chat' ? 'var(--yellow-b, #fabd2f)' : 'var(--fg3)',
+                     borderBottom: mobileTab === 'chat' ? '2px solid var(--yellow)' : '2px solid transparent' }}>
+            💬 Chat
+          </button>
+        </div>
+      )}
+
       {/* ── Main body ────────────────────────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden">
 
         {/* ── Players panel ──────────────────────────────────────────────── */}
-        <div className="w-64 shrink-0 flex flex-col"
-          style={{ background: 'var(--bg1)', borderRight: '1px solid var(--bg3)' }}>
+        <div
+          className={clsx('flex-col shrink-0', mobileTab === 'players' ? 'flex' : 'hidden', 'md:flex md:w-64')}
+          style={{ background: 'var(--bg1)', borderRight: '1px solid var(--bg3)',
+                   width: mobileTab === 'players' ? '100%' : undefined }}>
 
           {/* My word card */}
           {myWord && (
@@ -803,7 +826,7 @@ export default function LobbyPage() {
         </div>
 
         {/* ── Chat panel ─────────────────────────────────────────────────── */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className={clsx('flex-col overflow-hidden', mobileTab === 'chat' ? 'flex flex-1' : 'hidden', 'md:flex md:flex-1')}>
 
           {/* Game result */}
           {gameResult && (
@@ -963,16 +986,16 @@ export default function LobbyPage() {
       {showHintCard && isMyTurn && (
         <div className="fixed inset-0 z-50 flex items-center justify-center"
           style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)' }}>
-          <div className="animate-slide-up w-full max-w-md mx-4 rounded-2xl overflow-hidden"
+          <div className="animate-slide-up w-full max-w-md mx-2 md:mx-4 rounded-2xl overflow-hidden"
             style={{ border: '2px solid var(--yellow)', boxShadow: '0 0 60px rgba(215,153,33,0.35)' }}>
 
             {/* Card header */}
             <div className="px-6 pt-6 pb-4 text-center"
               style={{ background: 'var(--bg1)' }}>
-              <div className="font-display text-5xl mb-1" style={{ color: 'var(--yellow-b, #fabd2f)' }}>
+              <div className="font-display text-4xl mb-1" style={{ color: 'var(--yellow-b, #fabd2f)' }}>
                 🎤
               </div>
-              <h2 className="font-display text-3xl tracking-widest mb-1"
+              <h2 className="font-display text-2xl md:text-3xl tracking-widest mb-1"
                 style={{ color: 'var(--yellow-b, #fabd2f)' }}>
                 YOUR TURN
               </h2>
@@ -988,7 +1011,7 @@ export default function LobbyPage() {
                 style={{ color: myRole === 'imposter' ? 'var(--red-b)' : 'var(--blue-b)' }}>
                 {myRole === 'imposter' ? '🔴 You are the IMPOSTER' : '🔵 You are INNOCENT'}
               </div>
-              <div className="font-display text-5xl uppercase tracking-widest"
+              <div className="font-display text-4xl md:text-5xl uppercase tracking-widest"
                 style={{ color: 'var(--yellow-b, #fabd2f)' }}>
                 {myWord}
               </div>
@@ -1091,7 +1114,7 @@ export default function LobbyPage() {
             </div>
 
             {/* Player cards grid */}
-            <div className="p-4 grid grid-cols-2 gap-3"
+            <div className="p-3 md:p-4 grid grid-cols-2 gap-2 md:gap-3"
               style={{ background: 'var(--bg2)', borderTop: '1px solid var(--bg3)', borderBottom: '1px solid var(--bg3)' }}>
               {(lobby?.players || [])
                 .filter(p => !p.is_eliminated && p.id !== user.id)
@@ -1112,12 +1135,12 @@ export default function LobbyPage() {
                       onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--bg3)'}
                     >
                       {/* Avatar */}
-                      <div className="w-14 h-14 rounded-xl flex items-center justify-center font-bold text-2xl"
+                      <div className="w-12 h-12 md:w-14 md:h-14 rounded-xl flex items-center justify-center font-bold text-xl md:text-2xl"
                         style={{ background: p.avatar_color || '#458588', color: '#282828' }}>
                         {p.username?.[0]?.toUpperCase()}
                       </div>
                       {/* Name */}
-                      <div className="font-bold text-sm text-center" style={{ color: 'var(--fg)' }}>
+                      <div className="font-bold text-xs md:text-sm text-center truncate max-w-full" style={{ color: 'var(--fg)' }}>
                         {p.username}
                       </div>
                       {/* Hint badge */}

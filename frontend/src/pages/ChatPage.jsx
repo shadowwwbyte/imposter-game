@@ -26,6 +26,7 @@ export default function ChatPage() {
   const [replyTo, setReplyTo] = useState(null);
   const [recording, setRecording] = useState(false);
   const [showReactions, setShowReactions] = useState(null);
+  const [mobileShowChat, setMobileShowChat] = useState(false); // mobile: show conversation list or chat
   const messagesEndRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -165,12 +166,14 @@ export default function ChatPage() {
     navigate(`/chat/${uid}`);
     setSearch('');
     setSearchResults([]);
+    setMobileShowChat(true); // on mobile, switch to chat view
   };
 
   return (
-    <div className="h-full flex" style={{ color: 'var(--fg)' }}>
+    <div className="h-full flex relative" style={{ color: 'var(--fg)' }}>
       {/* Sidebar */}
-      <div className="w-64 flex flex-col shrink-0" style={{ background: 'var(--bg1)', borderRight: '1px solid var(--bg3)' }}>
+      <div className={`${mobileShowChat ? 'hidden' : 'flex'} md:flex flex-col shrink-0 md:w-64`}
+        style={{ background: 'var(--bg1)', borderRight: '1px solid var(--bg3)', width: mobileShowChat ? 0 : '100%' }}>
         <div className="p-4">
           <h1 className="font-display text-2xl mb-3" style={{ color: 'var(--yellow-b, #fabd2f)' }}>CHAT</h1>
           <div className="relative">
@@ -232,11 +235,18 @@ export default function ChatPage() {
       </div>
 
       {/* Chat area */}
-      <div className="flex-1 flex flex-col">
+      <div className={`${mobileShowChat ? 'flex' : 'hidden'} md:flex flex-1 flex-col`}>
         {activeUser ? (
           <>
             {/* Header */}
             <div className="flex items-center gap-3 px-4 py-3 shrink-0" style={{ background: 'var(--bg1)', borderBottom: '1px solid var(--bg3)' }}>
+              <button
+                onClick={() => setMobileShowChat(false)}
+                className="md:hidden p-1.5 rounded btn-ghost mr-1"
+                style={{ color: 'var(--fg3)' }}
+              >
+                ←
+              </button>
               <div className="w-9 h-9 rounded-lg flex items-center justify-center font-bold text-sm"
                 style={{ background: activeUser.avatar_color || '#458588', color: '#282828' }}>
                 {activeUser.username?.[0]?.toUpperCase()}
