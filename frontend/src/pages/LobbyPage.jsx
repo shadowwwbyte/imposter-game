@@ -307,15 +307,36 @@ export default function LobbyPage() {
         setShowWordGuess(true);
         toast('⚔️ Guess the innocent word now!', { duration: 5000, icon: '⚔️' });
       },
+      'lobby:reset': ({ message }) => {
+        // Lobby is back to waiting — clear all game state locally
+        setMyRole(null); setMyWord(null);
+        setVoting(false); setMyVote(null); setVoteResults({});
+        setCurrentTurnUserId(null); setCurrentTurnUsername(null);
+        setTurnTimeLeft(0); setTurnRound(1);
+        setPlayerHints({});
+        setShowHintCard(false); setShowVoteCard(false);
+        setFinalGuessPlayer(null); setMustGuess(false);
+        setPaused(false); setPauseInfo(null);
+        setImposterCount(0);
+        fetchLobby(); // refresh lobby status to 'waiting'
+        addSystemMsg(`🔄 ${message}`);
+      },
+
+      'lobby:discarded': ({ message }) => {
+        toast.error(message || 'This lobby was discarded by the host.');
+        navigate('/games');
+      },
+
       'game:ended': (result) => {
         setGameResult(result);
         setMyRole(null); setMyWord(null);
-        setVoting(false); setPlayerHints({});
+        setVoting(false);
         stopTurnTimer(); setCurrentTurnUserId(null);
         setShowHintCard(false);
         setMustGuess(false); setFinalGuessPlayer(null);
         setShowVoteCard(false); setVoteCardPlayers([]);
-        fetchLobby();
+        // Keep playerHints so result screen shows them
+        // lobby:reset event fires 3s later and clears everything
         addSystemMsg(`🏆 Game Over! ${result.winner === 'innocents' ? '🔵 Innocents' : '🔴 Imposters'} win! — ${result.reason}`);
         addSystemMsg(`📖 Innocent word: "${result.innocentWord}" | Imposter word: "${result.imposterWord}"`);
       },

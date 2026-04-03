@@ -11,7 +11,6 @@ const userRoutes = require('./routes/users');
 const friendRoutes = require('./routes/friends');
 const chatRoutes = require('./routes/chat');
 const lobbyRoutes = require('./routes/lobby');
-const lobbyMessagesRoutes = require('./routes/lobbyMessages');
 const gameRoutes = require('./routes/game');
 
 const { setupSocketHandlers } = require('./websocket/socketHandlers');
@@ -62,7 +61,6 @@ app.use('/api/users', userRoutes);
 app.use('/api/friends', friendRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/lobby', lobbyRoutes);
-app.use('/api/lobby', lobbyMessagesRoutes);
 app.use('/api/game', gameRoutes);
 
 // Health check

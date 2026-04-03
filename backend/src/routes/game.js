@@ -408,23 +408,22 @@ async function triggerVoting(lobby, roundsSince, io, code, queryFn) {
 }
 
 async function handleGameEnd(lobby, endCheck, io, code, queryFn) {
-  await queryFn(
-    "UPDATE game_lobbies SET status = 'finished', finished_at = NOW() WHERE id = $1",
-    [lobby.id]
-  );
-
-  await queryFn(
-    `UPDATE users SET status = 'online', current_lobby_id = NULL
-     WHERE id IN (SELECT user_id FROM lobby_members WHERE lobby_id = $1)`,
-    [lobby.id]
-  );
-
+  // Collect results BEFORE resetting
   const { rows: playerResults } = await queryFn(
     `SELECT lm.user_id, lm.role, lm.assigned_word, lm.is_eliminated, lm.elimination_round, u.username
      FROM lobby_members lm JOIN users u ON u.id = lm.user_id WHERE lm.lobby_id = $1`,
     [lobby.id]
   );
 
+  // Save game result to history
+  await queryFn(
+    `INSERT INTO game_results (lobby_id, winner_team, innocent_word, imposter_word, total_rounds, player_results)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [lobby.id, endCheck.winner, lobby.innocent_word, lobby.imposter_word,
+     lobby.current_round, JSON.stringify(playerResults)]
+  );
+
+  // Update player stats
   for (const player of playerResults) {
     const won = (endCheck.winner === 'innocents' && player.role === 'innocent') ||
                 (endCheck.winner === 'imposters' && player.role === 'imposter');
@@ -441,13 +440,43 @@ async function handleGameEnd(lobby, endCheck, io, code, queryFn) {
     );
   }
 
+  // ── RESET the lobby back to 'waiting' for the next game ──────────────────
+  // Keep members, keep settings, clear all game state
   await queryFn(
-    `INSERT INTO game_results (lobby_id, winner_team, innocent_word, imposter_word, total_rounds, player_results)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [lobby.id, endCheck.winner, lobby.innocent_word, lobby.imposter_word,
-     lobby.current_round, JSON.stringify(playerResults)]
+    `UPDATE game_lobbies SET
+       status                 = 'waiting',
+       innocent_word          = NULL,
+       imposter_word          = NULL,
+       current_round          = 0,
+       rounds_since_last_vote = 0,
+       voting_started         = FALSE,
+       paused_by              = NULL,
+       pause_reason           = NULL,
+       started_at             = NULL,
+       finished_at            = NOW()
+     WHERE id = $1`,
+    [lobby.id]
   );
 
+  // Reset all members' game state (roles, elimination) but keep them in the lobby
+  await queryFn(
+    `UPDATE lobby_members SET
+       role              = NULL,
+       assigned_word     = NULL,
+       is_eliminated     = FALSE,
+       elimination_round = NULL
+     WHERE lobby_id = $1`,
+    [lobby.id]
+  );
+
+  // Set all players back to online
+  await queryFn(
+    `UPDATE users SET status = 'online'
+     WHERE id IN (SELECT user_id FROM lobby_members WHERE lobby_id = $1)`,
+    [lobby.id]
+  );
+
+  // Emit result to everyone — includes the full stats, then lobby resets
   io.to(`lobby:${code}`).emit('game:ended', {
     winner:       endCheck.winner,
     reason:       endCheck.reason,
@@ -455,6 +484,13 @@ async function handleGameEnd(lobby, endCheck, io, code, queryFn) {
     imposterWord: lobby.imposter_word,
     players:      playerResults,
   });
+
+  // After a short delay, tell everyone the lobby is back to waiting
+  setTimeout(() => {
+    io.to(`lobby:${code}`).emit('lobby:reset', {
+      message: 'Lobby reset — ready for another game!',
+    });
+  }, 3000);
 }
 
 module.exports = router;
