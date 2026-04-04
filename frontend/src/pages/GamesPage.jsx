@@ -260,25 +260,25 @@ function LobbyCard({ lobby, user, navigate, onCopy, onLeave, onDiscard }) {
       {/* Actions */}
       <div style={{ display: 'flex', gap: 8 }}>
         <button onClick={() => navigate(`/games/lobby/${lobby.code}`)} className="btn-primary"
-          style={{ flex: 1, padding: '10px', borderRadius: 8, fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-          {lobby.status === 'paused' ? <><Play size={13} /> Resume</> : lobby.status === 'playing' ? <><Play size={13} /> Rejoin</> : <><LogIn size={13} /> Open</>}
+          style={{ padding: '7px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
+          {lobby.status === 'paused' ? <><Play size={12} /> Resume</> : lobby.status === 'playing' ? <><Play size={12} /> Rejoin</> : <><LogIn size={12} /> Open</>}
         </button>
         <button onClick={() => onCopy(lobby.code)} className="btn-ghost"
-          style={{ padding: '10px 12px', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          style={{ padding: '7px 10px', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           title="Copy link">
-          <Copy size={15} />
+          <Copy size={14} />
         </button>
         {isHost ? (
           <button onClick={() => onDiscard(lobby.code)} className="btn-ghost"
-            style={{ padding: '10px 12px', borderRadius: 8, color: 'var(--red-b)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-            title="Discard lobby">
-            <Trash2 size={15} />
+            style={{ padding: '7px 10px', borderRadius: 7, color: 'var(--red-b)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            title="Discard">
+            <Trash2 size={14} />
           </button>
         ) : (
           <button onClick={() => onLeave(lobby.code)} className="btn-ghost"
-            style={{ padding: '10px 12px', borderRadius: 8, color: 'var(--orange-b)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-            title="Leave lobby">
-            <LogIn size={15} style={{ transform: 'scaleX(-1)' }} />
+            style={{ padding: '7px 10px', borderRadius: 7, color: 'var(--orange-b)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            title="Leave">
+            <LogIn size={14} style={{ transform: 'scaleX(-1)' }} />
           </button>
         )}
       </div>

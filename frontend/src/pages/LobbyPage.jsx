@@ -72,6 +72,7 @@ export default function LobbyPage() {
   const turnTimeLeftRef  = useRef(0);
   const hintInputRef        = useRef(null);
   const finalGuessPendingRef = useRef(false); // ref so socket closures always get fresh value
+  const turnDoneRef = useRef(false); // prevents double turnDone (timer + manual submit)
 
   const isHost        = lobby?.host_id === user.id;
   const me            = lobby?.players?.find(p => p.id === user.id);
@@ -140,6 +141,7 @@ export default function LobbyPage() {
   // ── Turn timer ────────────────────────────────────────────────────────────
   const startTurnTimer = useCallback((seconds) => {
     clearInterval(turnTimerRef.current);
+    turnDoneRef.current = false; // reset for new turn
     setTurnTimeLeft(seconds);
     turnTimeLeftRef.current = seconds;
 
@@ -148,7 +150,10 @@ export default function LobbyPage() {
       setTurnTimeLeft(turnTimeLeftRef.current);
       if (turnTimeLeftRef.current <= 0) {
         clearInterval(turnTimerRef.current);
-        getSocket()?.emit('game:turnDone', { code });
+        if (!turnDoneRef.current) {
+          turnDoneRef.current = true;
+          getSocket()?.emit('game:turnDone', { code });
+        }
       }
     }, 1000);
   }, [code, getSocket]);
@@ -369,7 +374,8 @@ export default function LobbyPage() {
         setPauseInfo(null);
         // Refresh full lobby state on resume — roles/words may need restoring
         fetchLobby();
-        // If we had a turn running, restart its timer
+        // Only restart timer if there was active turn time remaining
+        // (don't auto-advance turns — wait for host to do it)
         if (currentTurnUserId && turnTimeLeftRef.current > 0) {
           startTurnTimer(turnTimeLeftRef.current);
         }
@@ -405,8 +411,9 @@ export default function LobbyPage() {
         // Don't auto-open the modal — let the imposter click the button themselves
         toast('⚔️ You must guess the innocent word! Tap the button on your card.', { duration: 6000 });
       },
-      'lobby:reset': ({ message }) => {
-        // Lobby is back to waiting — clear all game state locally
+      'lobby:reset': () => {
+        // Lobby reset to waiting — clear game state BUT keep gameResult visible
+        // gameResult is only cleared when host clicks Play Again (startGame)
         setMyRole(null); setMyWord(null);
         setVoting(false); setMyVote(null); setVoteResults({});
         setCurrentTurnUserId(null); setCurrentTurnUsername(null);
@@ -418,8 +425,8 @@ export default function LobbyPage() {
         finalGuessPendingRef.current = false;
         setPaused(false); setPauseInfo(null);
         setImposterCount(0);
-        fetchLobby(); // refresh lobby status to 'waiting'
-        addSystemMsg('🔄 Game over — lobby is ready for another round!');
+        fetchLobby(); // refresh lobby to 'waiting' status
+        // gameResult stays — Play Again button will clear it
       },
 
       'lobby:discarded': ({ message }) => {
@@ -463,17 +470,17 @@ export default function LobbyPage() {
     }
 
     const socket = getSocket();
-    // 1. Broadcast hint to all players (shown in player list)
     socket?.emit('game:submitHint', { code, hint: word });
-    // 2. Also post as a chat message so the chatroom shows it
     socket?.emit('lobby:message', { code, content: `💬 Hint: "${word}"` });
 
-    // game:hintSubmitted comes back from server for everyone — no local update needed
     setShowHintCard(false);
-
-    // Advance turn
-    socket?.emit('game:turnDone', { code });
     stopTurnTimer();
+
+    // Guard: only emit turnDone once per turn
+    if (!turnDoneRef.current) {
+      turnDoneRef.current = true;
+      socket?.emit('game:turnDone', { code });
+    }
   };
 
   // ── Chat actions ──────────────────────────────────────────────────────────
@@ -498,6 +505,7 @@ export default function LobbyPage() {
   // ── Game actions ──────────────────────────────────────────────────────────
   const startGame = async () => {
     try {
+      setGameResult(null); // clear previous result
       await api.post(`/game/${code}/start`);
       setTimeout(() => {
         getSocket()?.emit('game:nextTurn', { code, currentTurnUserId: '__start__' });
@@ -520,8 +528,8 @@ export default function LobbyPage() {
     try {
       await api.post(`/game/${code}/vote`, { votedForId: targetId });
       setMyVote(targetId);
-      setShowVoteCard(false);
-      toast.success('Vote cast!');
+      // Keep vote card open so player can watch live results — closes on elimination
+      toast.success('Vote cast! Waiting for others...');
     } catch (err) { toast.error(err.response?.data?.error || 'Failed to vote'); }
   };
 
@@ -1166,7 +1174,19 @@ export default function LobbyPage() {
             </div>
 
             <div style={{ background: '#1d2021', padding: '12px 20px', textAlign: 'center', borderTop: '1px solid #3c3836' }}>
-              <button onClick={() => setImposterReveal(null)} style={{
+              <button onClick={() => {
+                setImposterReveal(null);
+                // Host restarts turns after dismissing the reveal popup
+                if (isHost && !finalGuessPendingRef.current) {
+                  setTimeout(() => {
+                    const socket = getSocket();
+                    const stillActive = (lobby?.players || []).filter(p => !p.is_eliminated);
+                    if (stillActive.length > 1 && socket) {
+                      socket.emit('game:nextTurn', { code, currentTurnUserId: '__start__' });
+                    }
+                  }, 500);
+                }
+              }} style={{
                 padding: '10px 40px', borderRadius: 8, fontWeight: 700, fontSize: 14,
                 background: '#cc241d', color: '#fff', border: 'none', cursor: 'pointer',
                 fontFamily: '"JetBrains Mono", monospace',
@@ -1403,15 +1423,15 @@ export default function LobbyPage() {
                   return (
                     <button
                       key={p.id}
-                      onClick={() => castVote(p.id)}
-                      className="flex flex-col items-center gap-2 p-4 rounded-xl transition-all hover:scale-105 active:scale-95"
+                      onClick={() => !myVote && castVote(p.id)}
+                      className="flex flex-col items-center gap-2 p-4 rounded-xl transition-all"
                       style={{
-                        background: 'var(--bg)',
-                        border: '2px solid var(--bg3)',
-                        cursor: 'pointer',
+                        background: myVote === p.id ? 'rgba(177,98,134,0.2)' : 'var(--bg)',
+                        border: myVote === p.id ? '2px solid var(--purple)' : '2px solid var(--bg3)',
+                        cursor: myVote ? 'default' : 'pointer',
+                        transform: myVote === p.id ? 'scale(1.03)' : 'scale(1)',
+                        opacity: myVote && myVote !== p.id ? 0.6 : 1,
                       }}
-                      onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--purple)'}
-                      onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--bg3)'}
                     >
                       {/* Avatar */}
                       <div className="w-12 h-12 md:w-14 md:h-14 rounded-xl flex items-center justify-center font-bold text-xl md:text-2xl"

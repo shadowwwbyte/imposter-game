@@ -145,12 +145,14 @@ const setupSocketHandlers = (io) => {
 
             if (shouldStartVoting(activeCount, roundsSince)) {
               await query('UPDATE game_lobbies SET voting_started = TRUE WHERE code = $1', [code]);
-              io.to(`lobby:${code}`).emit('game:votingStarted', {
-                round:   lobbyFull.current_round,
-                message: `🗳️ Round ${lobbyFull.current_round} complete — time to vote!`,
-                auto:    true,
-              });
-              // Voting takes over — don't emit turnChanged
+              // 2-second grace so all clients finish hint submission UI before voting opens
+              setTimeout(() => {
+                io.to(`lobby:${code}`).emit('game:votingStarted', {
+                  round:   lobbyFull.current_round,
+                  message: `🗳️ Round ${lobbyFull.current_round} complete — time to vote!`,
+                  auto:    true,
+                });
+              }, 2000);
               return;
             }
           } else if (finalGuessPending) {
@@ -176,7 +178,10 @@ const setupSocketHandlers = (io) => {
     });
 
     socket.on('game:turnDone', ({ code }) => {
-      io.to(`lobby:${code}`).emit('game:turnDone', { userId: user.id, username: user.username });
+      // Small delay so hint broadcast (game:submitHint) arrives before turnDone
+      setTimeout(() => {
+        io.to(`lobby:${code}`).emit('game:turnDone', { userId: user.id, username: user.username });
+      }, 300);
     });
 
     // ── Disconnect ────────────────────────────────────────────────────────
