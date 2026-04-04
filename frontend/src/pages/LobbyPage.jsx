@@ -310,8 +310,8 @@ export default function LobbyPage() {
           addSystemMsg(`⚖️ ${message}`);
         }
         setVoting(true); setMyVote(null); setVoteResults({});
-        // Reopen vote card after brief delay so popup can be seen
-        setTimeout(() => setShowVoteCard(true), 2500);
+        // Reopen vote card for EVERYONE after popup
+        setTimeout(() => { setShowVotePopup(false); setShowVoteCard(true); }, 2500);
       },
       'game:playerEliminated': ({ userId: uid, username, role, votes }) => {
         // Reveal final vote tally for the summary popup
@@ -320,6 +320,10 @@ export default function LobbyPage() {
           votes.forEach(v => { tally[v.username] = parseInt(v.vote_count); });
         }
         setRevealedVotes({ tally, eliminated: username, role });
+        // If an imposter was caught, show big reveal flashcard
+        if (role === 'imposter') {
+          setImposterReveal({ username, tally });
+        }
         setShowVotePopup(true);
 
         setLobby(l => l ? {
@@ -406,7 +410,7 @@ export default function LobbyPage() {
         setTurnTimeLeft(0); setTurnRound(1);
         setPlayerHints({});
         setShowHintCard(false); setShowVoteCard(false); setShowVotePopup(false);
-        setRevealedVotes(null);
+        setRevealedVotes(null); setImposterReveal(null);
         setFinalGuessPlayer(null); setMustGuess(false);
         finalGuessPendingRef.current = false;
         setPaused(false); setPauseInfo(null);
@@ -428,7 +432,7 @@ export default function LobbyPage() {
         setShowHintCard(false);
         setMustGuess(false); setFinalGuessPlayer(null);
         finalGuessPendingRef.current = false;
-        setShowVoteCard(false); setVoteCardPlayers([]); setShowVotePopup(false); setRevealedVotes(null);
+        setShowVoteCard(false); setVoteCardPlayers([]); setShowVotePopup(false); setRevealedVotes(null); setImposterReveal(null);
         // Keep playerHints so result screen shows them
         // lobby:reset event fires 3s later and clears everything
         addSystemMsg(`🏆 Game Over! ${result.winner === 'innocents' ? '🔵 Innocents win!' : '🔴 Imposters win!'}`);
@@ -447,8 +451,13 @@ export default function LobbyPage() {
     e?.preventDefault();
     const trimmed = hintInput.trim();
     if (!trimmed) return;
-    // Only single word
     const word = trimmed.split(/\s+/)[0];
+
+    // Block if hint IS the actual word (case-insensitive)
+    if (myWord && word.toLowerCase() === myWord.toLowerCase()) {
+      toast.error('You cannot give your own word as a hint!');
+      return;
+    }
 
     const socket = getSocket();
     // 1. Broadcast hint to all players (shown in player list)
@@ -572,9 +581,20 @@ export default function LobbyPage() {
 
   const copyCode = () => {
     const url = `${window.location.origin}/games/lobby/${code}`;
-    navigator.clipboard.writeText(url)
-      .then(() => toast.success('Lobby link copied!'))
-      .catch(() => { navigator.clipboard.writeText(code); toast.success('Code copied!'); });
+    const fallback = () => {
+      try {
+        const el = document.createElement('textarea');
+        el.value = url;
+        el.style.position = 'fixed'; el.style.opacity = '0';
+        document.body.appendChild(el); el.select();
+        document.execCommand('copy');
+        document.body.removeChild(el);
+        toast.success('Lobby link copied!');
+      } catch { toast.error('Could not copy — code: ' + code); }
+    };
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(url).then(() => toast.success('Lobby link copied!')).catch(fallback);
+    } else { fallback(); }
   };
   // Back arrow — just navigates away, player stays in lobby
   const goBack = () => navigate('/games');
@@ -1085,6 +1105,75 @@ export default function LobbyPage() {
         </div>
       </div>
 
+
+
+      {/* ══════════════════════════════════════════════════════════════════
+          IMPOSTER REVEAL FLASHCARD — shown to everyone when imposter caught
+      ══════════════════════════════════════════════════════════════════ */}
+      {imposterReveal && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 65,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(6px)', padding: 16,
+        }}
+          onClick={() => setImposterReveal(null)}
+        >
+          <div className="animate-slide-up" style={{
+            width: '100%', maxWidth: 380, borderRadius: 20, overflow: 'hidden',
+            border: '3px solid #cc241d',
+            boxShadow: '0 0 60px rgba(204,36,29,0.6)',
+          }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Big red header */}
+            <div style={{ background: '#cc241d', padding: '28px 24px', textAlign: 'center' }}>
+              <div style={{ fontSize: 48, marginBottom: 8 }}>🔴</div>
+              <div style={{ fontFamily: 'VT323, monospace', fontSize: 52, color: '#ffffff', letterSpacing: 4, lineHeight: 1 }}>
+                IMPOSTER!
+              </div>
+              <div style={{ fontFamily: 'VT323, monospace', fontSize: 32, color: '#fbf1c7', marginTop: 8 }}>
+                {imposterReveal.username}
+              </div>
+              <div style={{ fontSize: 13, color: 'rgba(251,241,199,0.7)', marginTop: 4 }}>
+                was the imposter!
+              </div>
+            </div>
+
+            {/* Who voted them */}
+            <div style={{ background: '#1d2021', padding: '16px 20px' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: '#928374', marginBottom: 12, textTransform: 'uppercase' }}>
+                Vote breakdown
+              </div>
+              {Object.entries(imposterReveal.tally || {})
+                .sort(([,a],[,b]) => b - a)
+                .map(([name, votes]) => {
+                  const maxV = Math.max(...Object.values(imposterReveal.tally));
+                  return (
+                    <div key={name} style={{ marginBottom: 8 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                        <span style={{ fontSize: 13, color: '#ebdbb2' }}>{name}</span>
+                        <span style={{ fontSize: 13, color: '#a89984' }}>{votes} vote{votes !== 1 ? 's' : ''}</span>
+                      </div>
+                      <div style={{ height: 5, borderRadius: 3, background: '#3c3836' }}>
+                        <div style={{ height: '100%', borderRadius: 3, width: `${(votes/maxV)*100}%`, background: '#cc241d', transition: 'width 0.5s' }} />
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+
+            <div style={{ background: '#1d2021', padding: '12px 20px', textAlign: 'center', borderTop: '1px solid #3c3836' }}>
+              <button onClick={() => setImposterReveal(null)} style={{
+                padding: '10px 40px', borderRadius: 8, fontWeight: 700, fontSize: 14,
+                background: '#cc241d', color: '#fff', border: 'none', cursor: 'pointer',
+                fontFamily: '"JetBrains Mono", monospace',
+              }}>
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ══════════════════════════════════════════════════════════════════
           VOTE RESULTS POPUP — shown after each voting round ends

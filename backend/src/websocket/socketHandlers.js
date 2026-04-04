@@ -184,17 +184,36 @@ const setupSocketHandlers = (io) => {
       console.log(`[Socket] Disconnected: ${user.username} - ${reason}`);
       onlineUsers.delete(user.id);
 
+      // Auto-pause any active game this player is in
       const { rows: activeGame } = await query(
-        `SELECT gl.code FROM lobby_members lm
+        `SELECT gl.id, gl.code, gl.host_id FROM lobby_members lm
          JOIN game_lobbies gl ON gl.id = lm.lobby_id
          WHERE lm.user_id = $1 AND gl.status = 'playing'`,
         [user.id]
       );
+
       if (activeGame[0]) {
-        io.to(`lobby:${activeGame[0].code}`).emit('game:playerDisconnected', {
-          userId: user.id, username: user.username,
-          message: `${user.username} lost internet connection. Consider pausing the game.`,
+        const game = activeGame[0];
+        // Auto-pause the game
+        await query(
+          `UPDATE game_lobbies SET status = 'paused', paused_by = $1, pause_reason = $2 WHERE id = $3`,
+          [user.id, `${user.username} lost connection`, game.id]
+        );
+        await query(
+          `UPDATE users SET status = 'online' WHERE id IN (SELECT user_id FROM lobby_members WHERE lobby_id = $1)`,
+          [game.id]
+        );
+        io.to(`lobby:${game.code}`).emit('game:paused', {
+          pausedBy: 'System',
+          reason: `${user.username} lost internet connection — game auto-paused`,
         });
+        io.to(`lobby:${game.code}`).emit('game:playerDisconnected', {
+          userId: user.id, username: user.username,
+          message: `${user.username} lost connection — game auto-paused. Will auto-resume when they return.`,
+        });
+
+        // Auto-resume after reconnect — track in memory
+        // (handled in user:reconnect handler below)
       }
 
       await query('UPDATE users SET status = $1, last_seen = NOW() WHERE id = $2', ['offline', user.id]);
@@ -206,6 +225,29 @@ const setupSocketHandlers = (io) => {
       if (code) {
         socket.join(`lobby:${code}`);
         io.to(`lobby:${code}`).emit('game:playerReconnected', { userId: user.id, username: user.username });
+
+        // Auto-resume if the game was paused due to THIS user disconnecting
+        const { rows: pausedGame } = await query(
+          `SELECT gl.id, gl.code FROM game_lobbies gl
+           JOIN lobby_members lm ON lm.lobby_id = gl.id AND lm.user_id = $1
+           WHERE gl.code = $2 AND gl.status = 'paused' AND gl.paused_by = $1`,
+          [user.id, code]
+        );
+        if (pausedGame[0]) {
+          await query(
+            `UPDATE game_lobbies SET status = 'playing', paused_by = NULL, pause_reason = NULL WHERE id = $1`,
+            [pausedGame[0].id]
+          );
+          await query(
+            `UPDATE users SET status = 'busy' WHERE id IN (
+               SELECT user_id FROM lobby_members WHERE lobby_id = $1 AND is_eliminated = FALSE
+             )`,
+            [pausedGame[0].id]
+          );
+          io.to(`lobby:${code}`).emit('game:resumed', {
+            resumedBy: `${user.username} (reconnected)`,
+          });
+        }
       }
       await query('UPDATE users SET status = $1 WHERE id = $2', ['online', user.id]);
       io.emit('user:statusChange', { userId: user.id, status: 'online' });

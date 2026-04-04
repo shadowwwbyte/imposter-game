@@ -7,7 +7,7 @@ import { useSocketStore } from '../store/socketStore';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
 
-const CATEGORIES = ['general','animals','food','sports','music','movies','technology','nature'];
+const CATEGORIES = ['general','animals','food','sports','music','movies','technology','nature','history','geography','science','mythology','fashion','space','emotions','occupations','games'];
 
 export default function GamesPage() {
   const { user } = useAuthStore();
@@ -66,7 +66,21 @@ export default function GamesPage() {
     catch (err) { toast.error(err.response?.data?.error || 'Pause the game first'); }
   };
 
-  const copyCode = (code) => { navigator.clipboard.writeText(code); toast.success('Copied!'); };
+  const copyCode = (code) => {
+    const url = `${window.location.origin}/games/lobby/${code}`;
+    const fallback = () => {
+      try {
+        const el = document.createElement('textarea');
+        el.value = url; el.style.position = 'fixed'; el.style.opacity = '0';
+        document.body.appendChild(el); el.select();
+        document.execCommand('copy'); document.body.removeChild(el);
+        toast.success('Link copied!');
+      } catch { toast.success(`Code: ${code}`); }
+    };
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(url).then(() => toast.success('Link copied!')).catch(fallback);
+    } else { fallback(); }
+  };
 
   const activePlaying = myLobbies.filter(l => l.status === 'playing');
   const activePaused  = myLobbies.filter(l => l.status === 'paused');
