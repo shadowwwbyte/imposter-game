@@ -29,6 +29,9 @@ export default function LobbyPage() {
   const [voting, setVoting]                 = useState(false);
   const [myVote, setMyVote]                 = useState(null);
   const [voteResults, setVoteResults]       = useState({});
+  const [revealedVotes, setRevealedVotes]   = useState(null);
+  const [showVotePopup, setShowVotePopup]   = useState(false);
+  const [imposterReveal, setImposterReveal] = useState(null);
   const [gameResult, setGameResult]         = useState(null);
   const [paused, setPaused]                 = useState(false);
   const [pauseInfo, setPauseInfo]           = useState(null);
