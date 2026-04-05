@@ -71,8 +71,9 @@ export default function LobbyPage() {
   const turnTimerRef     = useRef(null);
   const turnTimeLeftRef  = useRef(0);
   const hintInputRef        = useRef(null);
-  const finalGuessPendingRef = useRef(false); // ref so socket closures always get fresh value
-  const turnDoneRef = useRef(false); // prevents double turnDone (timer + manual submit)
+  const finalGuessPendingRef   = useRef(false);
+  const turnDoneRef            = useRef(false);
+  const currentTurnUserIdRef   = useRef(null); // always-fresh ref for use in closures
 
   const isHost        = lobby?.host_id === user.id;
   const me            = lobby?.players?.find(p => p.id === user.id);
@@ -164,6 +165,9 @@ export default function LobbyPage() {
   }, []);
 
   useEffect(() => () => clearInterval(turnTimerRef.current), []);
+
+  // Keep turn ref in sync
+  useEffect(() => { currentTurnUserIdRef.current = currentTurnUserId; }, [currentTurnUserId]);
 
   // Show flashcard when it becomes my turn
   useEffect(() => {
@@ -284,24 +288,34 @@ export default function LobbyPage() {
         setVoting(false);
         setMyVote(null);
         setVoteResults({});
+        setRevealedVotes(null);
+        setShowVotePopup(false);
+        setShowVoteCard(false);
+        setImposterReveal(null);
         setPlayerHints({});
         setTurnRound(1);
+        setCurrentTurnUserId(null);
+        setCurrentTurnUsername(null);
+        turnDoneRef.current = false;
+        finalGuessPendingRef.current = false;
         fetchLobby();
-        // game:announcement fires the start message — no duplicate here
       },
       'game:announcement': ({ message }) => addSystemMsg(message),
 
       'game:votingStarted': ({ message, auto }) => {
+        // Full reset of vote state for this round
         setVoting(true);
         setMyVote(null);
         setVoteResults({});
+        setRevealedVotes(null);
         stopTurnTimer();
         setCurrentTurnUserId(null);
+        setCurrentTurnUsername(null);
         setShowHintCard(false);
+        setShowVotePopup(false);
         addSystemMsg(message || '🗳️ Time to vote!');
-        // Open vote flashcard for all active non-eliminated players
         setShowVoteCard(true);
-        if (auto) toast('🗳️ Voting time!', { duration: 3000 });
+        if (auto) toast('🗳️ Voting time!', { icon: '🗳️', duration: 2000 });
       },
       'game:voteReceived': ({ totalVotes, totalPlayers, votedForId }) => {
         // Just update vote counts — no per-vote log message (too noisy)
@@ -341,6 +355,7 @@ export default function LobbyPage() {
         } : l);
         setVoting(false);
         setShowVoteCard(false);
+        setMyVote(null);
         setVoteResults({});
         setFinalGuessPlayer(null);
         addSystemMsg(`💀 ${username} was eliminated! (${role === 'imposter' ? '🔴 Imposter' : '🔵 Innocent'})`);
@@ -372,14 +387,23 @@ export default function LobbyPage() {
       'game:resumed': ({ resumedBy }) => {
         setPaused(false);
         setPauseInfo(null);
-        // Refresh full lobby state on resume — roles/words may need restoring
         fetchLobby();
-        // Only restart timer if there was active turn time remaining
-        // (don't auto-advance turns — wait for host to do it)
-        if (currentTurnUserId && turnTimeLeftRef.current > 0) {
+        // Use ref (not stale closure) to check if a turn was in progress
+        if (currentTurnUserIdRef.current && turnTimeLeftRef.current > 0) {
           startTurnTimer(turnTimeLeftRef.current);
         }
         addSystemMsg(`▶️ Game resumed by ${resumedBy}`);
+      },
+
+      // Server tells host to restart turns after auto-resume
+      'game:resumeRestartTurns': ({ code: resumeCode }) => {
+        if (resumeCode === code && isHost) {
+          // Small delay then restart from current player
+          setTimeout(() => {
+            const turnId = currentTurnUserIdRef.current || '__start__';
+            getSocket()?.emit('game:nextTurn', { code, currentTurnUserId: turnId });
+          }, 1000);
+        }
       },
       'game:playerDisconnected': ({ username, message }) => {
         setDisconnectedUsers(d => [...d, username]);
