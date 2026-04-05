@@ -50,6 +50,9 @@ router.post('/:code/start', authenticate, async (req, res) => {
       );
     }
 
+    // Clear any votes from previous games in this lobby
+    await query('DELETE FROM votes WHERE lobby_id = $1', [lobby.id]);
+
     await query(`UPDATE users SET status = 'busy' WHERE id = ANY($1::uuid[])`, [memberIds]);
 
     const io = req.app.get('io');
@@ -467,6 +470,9 @@ async function handleGameEnd(lobby, endCheck, io, code, queryFn) {
      WHERE lobby_id = $1`,
     [lobby.id]
   );
+
+  // Delete all votes for this lobby so next game starts clean
+  await queryFn('DELETE FROM votes WHERE lobby_id = $1', [lobby.id]);
 
   // Set all players back to online
   await queryFn(
